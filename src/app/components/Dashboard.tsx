@@ -45,6 +45,8 @@ export default function Dashboard({ userRole }: DashboardProps) {
       // Calculate Stats
       const todaysBookingsCount = todaysBookings.length;
       const totalTrips = trips.length;
+      const activeTrips = trips.filter((t: any) => t.status === 'in_transit' || t.status === 'loading').length;
+      const pendingDeliveries = bookings.filter((b: any) => b.status !== 'delivered').length;
 
       // Today's Revenue
       const todaysRevenue = todaysBookings.reduce((sum: number, b: any) => sum + (Number(b.total_amount) || 0), 0);
@@ -58,12 +60,24 @@ export default function Dashboard({ userRole }: DashboardProps) {
         ? `₹${(totalRevenue / 100000).toFixed(1)}L`
         : `₹${totalRevenue.toLocaleString('en-IN')}`;
 
-      setStats([
-        { label: "Today's Bookings", value: String(todaysBookingsCount), icon: '📝' },
-        { label: "Today's Revenue", value: formattedTodaysRevenue, icon: '💵' },
-        { label: 'Total Revenue', value: formattedTotalRevenue, icon: '💰' },
-        { label: 'Total Trips', value: String(totalTrips), icon: '🚚' },
-      ]);
+      // Set different stats based on user role
+      if (userRole === 'booking_clerk') {
+        // Booking clerk sees only non-revenue metrics
+        setStats([
+          { label: "Today's Bookings", value: String(todaysBookingsCount), icon: '📝' },
+          { label: 'Active Trips', value: String(activeTrips), icon: '🚚' },
+          { label: 'Pending Deliveries', value: String(pendingDeliveries), icon: '📦' },
+          { label: 'Total Trips', value: String(totalTrips), icon: '🚛' },
+        ]);
+      } else {
+        // Owner and depot manager see revenue metrics
+        setStats([
+          { label: "Today's Bookings", value: String(todaysBookingsCount), icon: '📝' },
+          { label: "Today's Revenue", value: formattedTodaysRevenue, icon: '💵' },
+          { label: 'Total Revenue', value: formattedTotalRevenue, icon: '💰' },
+          { label: 'Total Trips', value: String(totalTrips), icon: '🚚' },
+        ]);
+      }
 
       // Recent Bookings (Top 5)
       setRecentBookings(bookings.slice(0, 5).map((b: any) => {
