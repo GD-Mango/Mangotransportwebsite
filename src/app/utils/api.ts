@@ -44,7 +44,15 @@ export const authApi = {
     });
 
     if (!error && data.session) {
-      return data;
+      // Fetch user profile to get role
+      const profile = await this.getUserProfile(email);
+      return {
+        ...data,
+        user: {
+          ...data.user,
+          role: profile?.role || 'owner'
+        }
+      };
     }
 
     // Fallback: Check manual profiles table
@@ -57,9 +65,13 @@ export const authApi = {
 
     if (profileError || !profiles) throw new Error('Invalid login credentials');
 
-    // Return mock session structure
+    // Return mock session structure with role
     return {
-      user: { id: profiles.id, email: profiles.email },
+      user: {
+        id: profiles.id,
+        email: profiles.email,
+        role: profiles.role
+      },
       session: { access_token: 'mock-token', user: profiles }
     };
   },

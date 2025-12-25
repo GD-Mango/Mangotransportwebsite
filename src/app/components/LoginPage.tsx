@@ -1,67 +1,34 @@
 import React, { useState } from 'react';
 import { authApi } from '../utils/api';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 
 interface LoginPageProps {
   onLogin: (role: 'owner' | 'booking_clerk' | 'depot_manager') => void;
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'owner' | 'booking_clerk' | 'depot_manager'>('owner');
   const [isLoading, setIsLoading] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(false);
   const [error, setError] = useState('');
-  const [initMessage, setInitMessage] = useState('');
-
-  const handleInitialize = async () => {
-    setIsInitializing(true);
-    setInitMessage('');
-    setError('');
-    
-    try {
-      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-9db23d94/initialize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-        },
-      });
-
-      const data = await response.json();
-      
-      if (data.success) {
-        if (data.credentials) {
-          setInitMessage(`System initialized! You can now login with:\nEmail: ${data.credentials.email}\nPassword: ${data.credentials.password}`);
-          setUsername(data.credentials.email);
-        } else {
-          setInitMessage('System already initialized. Use existing credentials to login.');
-        }
-      } else {
-        setError('Failed to initialize system. Check console for details.');
-      }
-    } catch (err: any) {
-      console.error('Initialize error:', err);
-      setError('Failed to initialize system. Please try again.');
-    } finally {
-      setIsInitializing(false);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) return;
-    
+    if (!email || !password) return;
+
     setIsLoading(true);
     setError('');
-    
+
     try {
-      await authApi.signIn(username, password);
-      onLogin(selectedRole);
+      // Authenticate and get user role from database
+      const response = await authApi.signIn(email, password);
+
+      // Get user role from the response
+      const userRole = response.user?.role || 'owner';
+
+      onLogin(userRole as 'owner' | 'booking_clerk' | 'depot_manager');
     } catch (err: any) {
       console.error('Login error:', err);
-      setError(err.message || 'Login failed. Please try again.');
+      setError(err.message || 'Invalid email or password. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -81,16 +48,16 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-                Username
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                Email
               </label>
               <input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="Enter your username"
+                placeholder="Enter your email"
                 required
               />
             </div>
@@ -110,22 +77,6 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               />
             </div>
 
-            <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-2">
-                Login As
-              </label>
-              <select
-                id="role"
-                value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value as any)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-              >
-                <option value="owner">Owner</option>
-                <option value="booking_clerk">Booking Clerk</option>
-                <option value="depot_manager">Depot Manager</option>
-              </select>
-            </div>
-
             <button
               type="submit"
               className="w-full bg-orange-500 text-white py-3 rounded-lg hover:bg-orange-600 transition-colors font-medium"
@@ -141,24 +92,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </div>
           )}
 
-          {initMessage && (
-            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 whitespace-pre-line">
-              {initMessage}
-            </div>
-          )}
-
-          <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
-            <button
-              type="button"
-              onClick={handleInitialize}
-              disabled={isInitializing}
-              className="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium disabled:opacity-50"
-            >
-              {isInitializing ? 'Initializing...' : 'Initialize System (First Time Setup)'}
-            </button>
-            
+          <div className="mt-6 pt-6 border-t border-gray-200">
             <p className="text-xs text-gray-500 text-center">
-              Click above if this is your first time using the system. This will create an admin account and default data.
+              Need help? Contact your system administrator.
             </p>
           </div>
         </div>
