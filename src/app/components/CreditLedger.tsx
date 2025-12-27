@@ -2,7 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { creditApi } from '../utils/api';
 import { jsPDF } from 'jspdf';
 
-export default function CreditLedger() {
+interface CreditLedgerProps {
+  assignedDepotId?: string | null;
+}
+
+export default function CreditLedger({ assignedDepotId }: CreditLedgerProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
   const [creditAccounts, setCreditAccounts] = useState<any[]>([]);
@@ -20,7 +24,7 @@ export default function CreditLedger() {
 
   const loadCreditData = async () => {
     try {
-      const { accounts, totalCredit, totalAdvancePaid, totalNetOutstanding } = await creditApi.getCreditSummary();
+      const { accounts, totalCredit, totalAdvancePaid, totalNetOutstanding } = await creditApi.getCreditSummary(assignedDepotId);
       setCreditAccounts(accounts);
       setTotals({ totalCredit, totalAdvancePaid, totalNetOutstanding });
     } catch (error) {

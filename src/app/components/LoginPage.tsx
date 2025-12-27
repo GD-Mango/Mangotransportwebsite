@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { authApi } from '../utils/api';
 
 interface LoginPageProps {
-  onLogin: (role: 'owner' | 'booking_clerk' | 'depot_manager', depotId?: string | null) => void;
+  onLogin: (role: string, userId: string, depotId?: string | null) => void;
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
@@ -22,11 +22,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       // Authenticate and get user role and depot from database
       const response = await authApi.signIn(email, password);
 
-      // Get user role and assigned depot ID from the response
+      // Get user role, ID, and assigned depot ID from the response
       const userRole = response.user?.role || 'owner';
+      const userId = response.user?.id || '';
       const depotId = (response.user as any)?.assigned_depot_id || null;
 
-      onLogin(userRole as 'owner' | 'booking_clerk' | 'depot_manager', depotId);
+      console.log('Login successful:', { userRole, userId, depotId }); // Debug log
+      onLogin(userRole, userId, depotId);
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err.message || 'Invalid email or password. Please try again.');
@@ -40,8 +42,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-orange-500 rounded-2xl mb-4 overflow-hidden">
-              <img src="/logo.png" alt="Mango Express Logo" className="w-full h-full object-contain p-2" />
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-green-600 rounded-2xl mb-4 overflow-hidden">
+              <img src="/logo.webp" alt="Mango Express Logo" className="w-full h-full object-contain p-2" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Mango Express</h1>
             <p className="text-gray-600">Seasonal Transport Management</p>
@@ -80,7 +82,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
             <button
               type="submit"
-              className="w-full bg-orange-500 text-white py-3 rounded-lg hover:bg-orange-600 transition-colors font-medium"
+              className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition-colors font-medium"
               disabled={isLoading}
             >
               {isLoading ? 'Logging in...' : 'Login'}

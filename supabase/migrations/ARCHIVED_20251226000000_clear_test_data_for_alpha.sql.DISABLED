@@ -1,0 +1,105 @@
+-- ============================================================================
+-- Migration: Clear Test Data for Alpha Testing
+-- Created: 2025-12-26
+-- Description: Clears all bookings, trips, and contact data while preserving
+--              system configuration (users, depots, routes, pricing, seasons)
+-- ============================================================================
+
+-- IMPORTANT: This migration will DELETE all test data. Make sure you want to
+--            proceed before running this script!
+
+BEGIN;
+
+-- ============================================================================
+-- 1. CLEAR BOOKING-RELATED DATA
+-- ============================================================================
+
+-- Delete all receiver packages (must be first due to foreign key constraints)
+DELETE FROM public.receiver_packages;
+
+-- Delete all booking receivers
+DELETE FROM public.booking_receivers;
+
+-- Delete all bookings
+DELETE FROM public.bookings;
+
+-- ============================================================================
+-- 2. CLEAR TRIP-RELATED DATA
+-- ============================================================================
+
+-- Delete all trip-booking associations
+DELETE FROM public.trip_bookings;
+
+-- Delete all trips
+DELETE FROM public.trips;
+
+-- ============================================================================
+-- 3. CLEAR CONTACT DATA (Autocomplete)
+-- ============================================================================
+
+-- Delete all contacts (sender/receiver autocomplete data)
+DELETE FROM public.contacts;
+
+-- ============================================================================
+-- 4. CLEAR CREDIT LEDGER TRANSACTIONS
+-- ============================================================================
+
+-- Delete all ledger transactions
+DELETE FROM public.ledger_transactions;
+
+-- ============================================================================
+-- 5. RESET COUNTERS
+-- ============================================================================
+
+-- Reset receipt and trip counters to start fresh for alpha testing
+UPDATE public.receipt_counter
+SET 
+    counter = 0,
+    last_date = CURRENT_DATE,
+    trip_counter = 0,
+    trip_last_date = CURRENT_DATE
+WHERE id = 1;
+
+-- ============================================================================
+-- 6. VERIFICATION QUERIES (commented out - uncomment to verify)
+-- ============================================================================
+
+-- Uncomment these to verify the cleanup worked correctly:
+
+-- Should return 0 for all:
+-- SELECT COUNT(*) as bookings_count FROM public.bookings;
+-- SELECT COUNT(*) as receivers_count FROM public.booking_receivers;
+-- SELECT COUNT(*) as packages_count FROM public.receiver_packages;
+-- SELECT COUNT(*) as trips_count FROM public.trips;
+-- SELECT COUNT(*) as trip_bookings_count FROM public.trip_bookings;
+-- SELECT COUNT(*) as contacts_count FROM public.contacts;
+-- SELECT COUNT(*) as ledger_count FROM public.ledger_transactions;
+
+-- Should still have data:
+-- SELECT COUNT(*) as users_count FROM public.profiles;
+-- SELECT COUNT(*) as depots_count FROM public.depots;
+-- SELECT COUNT(*) as routes_count FROM public.depot_routes;
+-- SELECT COUNT(*) as packages_count FROM public.packages;
+-- SELECT COUNT(*) as seasons_count FROM public.season_settings;
+
+COMMIT;
+
+-- ============================================================================
+-- NOTES FOR ALPHA TESTING
+-- ============================================================================
+
+-- After running this migration:
+-- ✓ All test bookings are removed
+-- ✓ All test trips are removed
+-- ✓ All sender/receiver contact data is cleared
+-- ✓ All credit ledger transactions are cleared
+-- ✓ Counters are reset to start fresh
+-- 
+-- ✓ User accounts are preserved
+-- ✓ Depot configurations are preserved
+-- ✓ Depot routes are preserved
+-- ✓ Package sizes and pricing are preserved
+-- ✓ Season settings are preserved
+--
+-- Next receipt will be: DRT-DDMMYYYY-001
+-- Next trip will be: TRIP-DDMMYYYY-001

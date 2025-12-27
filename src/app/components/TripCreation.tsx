@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { seasonApi, bookingsApi, depotsApi, tripsApi } from '../utils/api';
+import { seasonApi, bookingsApi, depotsApi, tripsApi, depotRoutesApi } from '../utils/api';
+import { useTripStore, useSyncStore, useOnlineStore } from '../stores';
+import { queueOperation } from '../utils/syncEngine';
+import { isNetworkError } from '../utils/networkErrors';
 
 interface Booking {
   id: string;
@@ -23,7 +26,17 @@ interface Depot {
   depot_type: string;
 }
 
-export default function TripCreation() {
+interface TripCreationProps {
+  userRole?: string;
+  assignedDepotId?: string | null;
+}
+
+export default function TripCreation({ userRole, assignedDepotId }: TripCreationProps) {
+  // Zustand stores for offline support
+  const { draft, hasDraft, saveDraft, clearDraft, lastSavedAt, selectedBookings: storedSelectedBookings, setSelectedBookings: storeSetSelectedBookings, pendingTripId, setPendingTripId } = useTripStore();
+  const isOnline = useOnlineStore((state) => state.isOnline);
+  const pendingOperations = useSyncStore((state) => state.pendingOperations);
+
   const [formData, setFormData] = useState({
     driverName: '',
     driverPhone: '',
@@ -38,10 +51,38 @@ export default function TripCreation() {
   const [isSeasonActive, setIsSeasonActive] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [forwardingDestinations, setForwardingDestinations] = useState<string[]>([]);
+  const [showDraftPrompt, setShowDraftPrompt] = useState(false);
+
+  // Check for draft on mount
+  useEffect(() => {
+    if (hasDraft && draft) {
+      if (lastSavedAt) {
+        const hoursSinceLastSave = (Date.now() - new Date(lastSavedAt).getTime()) / (1000 * 60 * 60);
+        if (hoursSinceLastSave < 24) {
+          setShowDraftPrompt(true);
+        } else {
+          clearDraft();
+        }
+      }
+    }
+  }, []);
+
+  // Auto-save form data as draft (debounced)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (formData.driverName || formData.vehicleNumber || selectedBookings.length > 0) {
+        saveDraft(formData);
+        storeSetSelectedBookings(selectedBookings);
+      }
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [formData, selectedBookings, saveDraft, storeSetSelectedBookings]);
 
   useEffect(() => {
     loadInitialData();
-  }, []);
+  }, []);;
 
   const loadInitialData = async () => {
     setIsLoading(true);
@@ -61,11 +102,31 @@ export default function TripCreation() {
         setIsSeasonActive(now >= start && now <= end);
       }
 
-      // Filter bookings with status 'booked' (not yet assigned to a trip)
-      const bookedOnly = (bookingsRes.bookings || []).filter(
-        (b: Booking) => b.status === 'booked'
-      );
-      setAvailableBookings(bookedOnly);
+      // For forwarding depot managers, show bookings that need to be forwarded
+      if (userRole === 'depot_manager' && assignedDepotId) {
+        // Fetch the routes where this depot is the origin (forwarding from)
+        const routesRes = await depotRoutesApi.getByDepotId(assignedDepotId);
+        const destinationIds = routesRes.forwardingDepotIds || [];
+        setForwardingDestinations(destinationIds);
+
+        console.log('Forwarding destinations for depot:', assignedDepotId, destinationIds);
+
+        // For forwarding trips: show bookings that are in_transit or reached_depot
+        // AND destined for one of the forwarding destinations
+        // These are packages that arrived at this depot and need to be forwarded
+        const forwardingBookings = (bookingsRes.bookings || []).filter((b: Booking) =>
+          ['in_transit', 'reached_depot'].includes(b.status) &&
+          destinationIds.includes(b.destination_depot_id)
+        );
+
+        setAvailableBookings(forwardingBookings);
+      } else {
+        // For owner/booking clerk: show only 'booked' status (regular trip creation)
+        const bookedOnly = (bookingsRes.bookings || []).filter(
+          (b: Booking) => b.status === 'booked'
+        );
+        setAvailableBookings(bookedOnly);
+      }
 
       // Set depots
       setDepots(depotsRes.depots || []);
@@ -99,34 +160,64 @@ export default function TripCreation() {
       // Get origin depot from first selected booking
       const firstBooking = availableBookings.find(b => selectedBookings.includes(b.id));
 
-      // Create trip - use depot IDs not names
+      // For forwarding trips, the origin is the current depot (forwarding from)
+      const isForwardingTrip = userRole === 'depot_manager' && assignedDepotId;
+
+      // Create trip data
       const tripData = {
         driver: formData.driverName,
         driverPhone: formData.driverPhone,
         vehicle: formData.vehicleNumber,
         tripCost: parseFloat(formData.tripCost) || 0,
-        originId: firstBooking?.origin_depot_id || null,
+        originId: isForwardingTrip ? assignedDepotId : (firstBooking?.origin_depot_id || null),
         destinationId: firstBooking?.destination_depot_id || null,
         departure: new Date().toISOString(),
-        eta: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Next day
+        eta: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        isForwarding: isForwardingTrip,
       };
 
-      // Create trip and link selected bookings (API handles status update)
-      const tripResult = await tripsApi.create(tripData, selectedBookings);
+      if (isOnline) {
+        try {
+          const tripResult = await tripsApi.create(tripData, selectedBookings);
+          alert(`Trip created successfully! Trip Number: ${tripResult.trip?.trip_number || tripResult.trip?.id || 'Created'}`);
 
-      alert(`Trip created successfully! Trip Number: ${tripResult.trip?.trip_number || tripResult.trip?.id || 'Created'}`);
+          // Clear draft and reset
+          clearDraft();
+          setFormData({ driverName: '', driverPhone: '', vehicleNumber: '', tripCost: '' });
+          setSelectedBookings([]);
+          loadInitialData();
+        } catch (error: any) {
+          console.error('Error creating trip:', error);
 
-      // Reset form
-      setFormData({
-        driverName: '',
-        driverPhone: '',
-        vehicleNumber: '',
-        tripCost: '',
-      });
-      setSelectedBookings([]);
+          // Check if network error - queue it
+          if (isNetworkError(error)) {
+            console.log('[TripCreation] Network error detected, queuing operation');
+            const operationId = queueOperation('CREATE_TRIP', { tripData, bookingIds: selectedBookings }, {
+              entityType: 'trip',
+              optimisticData: { formData, selectedBookings, createdAt: new Date().toISOString() }
+            });
+            setPendingTripId(operationId);
+            alert(`Trip saved offline! Reference: TRIP-${operationId.slice(-8).toUpperCase()}. It will be synced when you're back online.`);
+            clearDraft();
+            setFormData({ driverName: '', driverPhone: '', vehicleNumber: '', tripCost: '' });
+            setSelectedBookings([]);
+          } else {
+            alert('Error creating trip. Please try again.');
+          }
+        }
+      } else {
+        // Offline: Queue the operation
+        const operationId = queueOperation('CREATE_TRIP', { tripData, bookingIds: selectedBookings }, {
+          entityType: 'trip',
+          optimisticData: { formData, selectedBookings, createdAt: new Date().toISOString() }
+        });
 
-      // Reload bookings
-      loadInitialData();
+        setPendingTripId(operationId);
+        alert(`Trip saved offline! Reference: TRIP-${operationId.slice(-8).toUpperCase()}. It will be synced when you're back online.`);
+        clearDraft();
+        setFormData({ driverName: '', driverPhone: '', vehicleNumber: '', tripCost: '' });
+        setSelectedBookings([]);
+      }
     } catch (error) {
       console.error('Error creating trip:', error);
       alert('Error creating trip. Please try again.');
@@ -218,7 +309,7 @@ export default function TripCreation() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-8 max-w-full overflow-x-hidden">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Trip Creation</h1>
         <p className="text-gray-600">Create a new transport trip and assign bookings</p>
@@ -241,49 +332,98 @@ export default function TripCreation() {
         </div>
       )}
 
+      {/* Draft Recovery Prompt */}
+      {showDraftPrompt && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">📝</span>
+            <div className="flex-1">
+              <h3 className="font-semibold text-blue-900">Resume Previous Trip?</h3>
+              <p className="text-sm text-blue-700 mt-1">
+                You have an unsaved trip draft from {lastSavedAt ? new Date(lastSavedAt).toLocaleString() : 'earlier'}.
+              </p>
+              <div className="flex gap-3 mt-3">
+                <button
+                  onClick={() => {
+                    if (draft) setFormData(draft);
+                    if (storedSelectedBookings.length > 0) setSelectedBookings(storedSelectedBookings);
+                    setShowDraftPrompt(false);
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                >
+                  Resume Trip
+                </button>
+                <button
+                  onClick={() => { clearDraft(); setShowDraftPrompt(false); }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm font-medium"
+                >
+                  Start Fresh
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Offline Warning */}
+      {!isOnline && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">⚠️</span>
+            <div>
+              <span className="font-medium text-amber-800">You're currently offline. </span>
+              <span className="text-amber-700">Your trip will be saved and submitted when you're back online.</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Inventory Summary Cards */}
       <div className="mb-6">
         <h2 className="font-bold text-gray-900 mb-4">System Inventory - Pending Bookings</h2>
-        <div className="flex gap-4 overflow-x-auto pb-2">
-          {/* Total Inventory Card - First */}
-          {availableBookings.length > 0 && (
-            <div className="bg-orange-50 rounded-lg border-2 border-orange-300 p-4 min-w-[180px] flex-shrink-0">
-              <p className="text-sm font-bold text-orange-700 mb-2">📦 Total Inventory</p>
-              <p className="text-xs text-gray-600 mb-2">{availableBookings.length} total bookings</p>
-              <div className="space-y-1 max-h-[140px] overflow-y-auto">
-                {Object.entries(totalInventory).map(([pkgName, qty]) => (
-                  <div key={pkgName} className="flex justify-between text-xs">
-                    <span className="text-gray-700">{pkgName}</span>
-                    <span className="font-bold text-orange-700 ml-2">{qty}</span>
-                  </div>
-                ))}
+        {/* Container with viewport-based width to prevent horizontal page scroll */}
+        <div className="w-[calc(100vw-320px)] max-w-full overflow-hidden">
+          <div className="flex gap-4 overflow-x-auto pb-3">
+            {/* Total Inventory Card - First */}
+            {availableBookings.length > 0 && (
+              <div className="bg-orange-50 rounded-lg border-2 border-orange-300 p-4 min-w-[180px] max-w-[200px] flex-shrink-0">
+                <p className="text-sm font-bold text-orange-700 mb-2">📦 Total Inventory</p>
+                <p className="text-xs text-gray-600 mb-2">{availableBookings.length} total bookings</p>
+                <div className="space-y-1 max-h-[140px] overflow-y-auto">
+                  {Object.entries(totalInventory).map(([pkgName, qty]) => (
+                    <div key={pkgName} className="flex justify-between text-xs">
+                      <span className="text-gray-700">{pkgName}</span>
+                      <span className="font-bold text-orange-700 ml-2">{qty}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Per-Depot Cards */}
-          {Object.entries(inventoryByDestination).map(([depot, data]) => (
-            <div key={depot} className="bg-white rounded-lg border border-gray-200 p-4 min-w-[180px] flex-shrink-0">
-              <p className="text-sm font-bold text-gray-900 truncate mb-2">{depot}</p>
-              <p className="text-xs text-gray-500 mb-2">{data.bookings.length} bookings</p>
-              <div className="space-y-1 max-h-[140px] overflow-y-auto">
-                {Object.entries(data.packages).map(([pkgName, qty]) => (
-                  <div key={pkgName} className="flex justify-between text-xs">
-                    <span className="text-gray-600 truncate">{pkgName}</span>
-                    <span className="font-bold text-orange-600 ml-2">{qty}</span>
-                  </div>
-                ))}
-                {Object.keys(data.packages).length === 0 && (
-                  <p className="text-xs text-gray-400">No packages</p>
-                )}
+            {/* Per-Depot Cards */}
+            {Object.entries(inventoryByDestination).map(([depot, data]) => (
+              <div key={depot} className="bg-white rounded-lg border border-gray-200 p-4 min-w-[180px] max-w-[200px] flex-shrink-0">
+                <p className="text-sm font-bold text-gray-900 truncate mb-2">{depot}</p>
+                <p className="text-xs text-gray-500 mb-2">{data.bookings.length} bookings</p>
+                <div className="space-y-1 max-h-[140px] overflow-y-auto">
+                  {Object.entries(data.packages).map(([pkgName, qty]) => (
+                    <div key={pkgName} className="flex justify-between text-xs">
+                      <span className="text-gray-600 truncate">{pkgName}</span>
+                      <span className="font-bold text-orange-600 ml-2">{qty}</span>
+                    </div>
+                  ))}
+                  {Object.keys(data.packages).length === 0 && (
+                    <p className="text-xs text-gray-400">No packages</p>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-          {Object.keys(inventoryByDestination).length === 0 && (
-            <div className="flex-1 bg-gray-50 rounded-lg p-6 text-center text-gray-500">
-              No pending bookings available
-            </div>
-          )}
+            ))}
+            {Object.keys(inventoryByDestination).length === 0 && (
+              <div className="flex-1 bg-gray-50 rounded-lg p-6 text-center text-gray-500">
+                No pending bookings available
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

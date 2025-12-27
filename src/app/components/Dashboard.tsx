@@ -32,10 +32,12 @@ export default function Dashboard({ userRole, assignedDepotId }: DashboardProps)
       const trips = tripsRes.trips || [];
 
       // Filter data for depot managers based on assigned depot
+      // Depot managers should ONLY see bookings that have been added to trips (not "booked" status)
       const filteredBookings = userRole === 'depot_manager' && assignedDepotId
         ? bookings.filter((b: any) =>
-          b.destination_depot_id === assignedDepotId ||
-          b.origin_depot_id === assignedDepotId
+          (b.destination_depot_id === assignedDepotId ||
+            b.origin_depot_id === assignedDepotId) &&
+          b.status !== 'booked' // Exclude bookings not yet in trips
         )
         : bookings;
 
@@ -76,6 +78,48 @@ export default function Dashboard({ userRole, assignedDepotId }: DashboardProps)
         ? `₹${(totalRevenue / 100000).toFixed(1)}L`
         : `₹${totalRevenue.toLocaleString('en-IN')}`;
 
+      // Calculate depot-specific metrics for depot managers
+
+      // PENDING TO-PAY
+      // Total pending To-Pay amount (all undelivered To-Pay receipts at this depot)
+      const pendingToPayBookings = filteredBookings.filter((b: any) =>
+        b.payment_method === 'to_pay' && b.status !== 'delivered'
+      );
+      const totalPendingToPayAmount = pendingToPayBookings.reduce((sum: number, b: any) =>
+        sum + (Number(b.total_amount) || 0), 0
+      );
+
+      // Today's pending To-Pay amount
+      const todaysPendingToPayBookings = todaysBookings.filter((b: any) =>
+        b.payment_method === 'to_pay' && b.status !== 'delivered'
+      );
+      const todaysPendingToPayAmount = todaysPendingToPayBookings.reduce((sum: number, b: any) =>
+        sum + (Number(b.total_amount) || 0), 0
+      );
+
+      // TO-PAY COLLECTED
+      // Total To-Pay collected (all delivered To-Pay bookings)
+      const toPayCollected = filteredBookings
+        .filter((b: any) => b.payment_method === 'to_pay' && b.status === 'delivered')
+        .reduce((sum: number, b: any) => sum + (Number(b.total_amount) || 0), 0);
+
+      // Today's To-Pay collected (use actual collection date from to_pay_collected_at)
+      const todaysToPayCollected = filteredBookings
+        .filter((b: any) => {
+          if (b.payment_method !== 'to_pay' || !b.to_pay_collected_at) return false;
+          const collectionDate = new Date(b.to_pay_collected_at);
+          collectionDate.setHours(0, 0, 0, 0);
+          return collectionDate.getTime() === todayTime;
+        })
+        .reduce((sum: number, b: any) => sum + (Number(b.total_amount) || 0), 0);
+
+      // Total packages count for today
+      const todaysPackages = todaysBookings.reduce((sum: number, b: any) => {
+        return sum + (b.receivers?.reduce((pSum: number, r: any) => {
+          return pSum + (r.packages?.reduce((pkgSum: number, p: any) => pkgSum + (p.quantity || 0), 0) || 0);
+        }, 0) || 0);
+      }, 0);
+
       // Set different stats based on user role
       if (userRole === 'booking_clerk') {
         // Booking clerk sees only non-revenue metrics
@@ -85,8 +129,24 @@ export default function Dashboard({ userRole, assignedDepotId }: DashboardProps)
           { label: 'Pending Deliveries', value: String(pendingDeliveries), icon: '📦' },
           { label: 'Total Trips', value: String(totalTrips), icon: '🚛' },
         ]);
+      } else if (userRole === 'depot_manager') {
+        // Depot manager sees depot-specific operational metrics (NO REVENUE)
+        setStats([
+          { label: "Today's Packages", value: String(todaysPackages), icon: '📦' },
+          {
+            label: "Pending To-Pay",
+            value: `Today: ₹${todaysPendingToPayAmount.toLocaleString('en-IN')}\nTotal: ₹${totalPendingToPayAmount.toLocaleString('en-IN')}`,
+            icon: '💵'
+          },
+          {
+            label: 'To-Pay Collected',
+            value: `Today: ₹${todaysToPayCollected.toLocaleString('en-IN')}\nTotal: ₹${toPayCollected.toLocaleString('en-IN')}`,
+            icon: '💰'
+          },
+          { label: 'Pending Deliveries', value: String(pendingDeliveries), icon: '🚚' },
+        ]);
       } else {
-        // Owner and depot manager see revenue metrics
+        // Owner sees revenue metrics
         setStats([
           { label: "Today's Bookings", value: String(todaysBookingsCount), icon: '📝' },
           { label: "Today's Revenue", value: formattedTodaysRevenue, icon: '💵' },
@@ -148,7 +208,7 @@ export default function Dashboard({ userRole, assignedDepotId }: DashboardProps)
               {/* Change indicator removed for now as we don't have historical data comparison yet */}
             </div>
             <p className="text-sm text-gray-600 mb-1">{stat.label}</p>
-            <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+            <p className="text-2xl font-bold text-gray-900 whitespace-pre-line">{stat.value}</p>
           </div>
         ))}
       </div>

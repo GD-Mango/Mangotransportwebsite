@@ -299,7 +299,11 @@ function UserManagement() {
                     {user.role?.replace('_', ' ')}
                   </span>
                 </td>
-                <td className="px-6 py-4">{user.assignedDepot || '-'}</td>
+                <td className="px-6 py-4">
+                  {user.assignedDepot
+                    ? depots.find(d => d.id === user.assignedDepot)?.name || user.assignedDepot
+                    : '-'}
+                </td>
                 <td className="px-6 py-4">
                   <span className={`px-2 py-1 rounded text-xs ${user.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
                     {user.status}

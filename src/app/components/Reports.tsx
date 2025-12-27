@@ -81,10 +81,10 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
       const toDate = dateRange.to || undefined;
 
       const [bookingRes, tripRes, customersRes, routesRes] = await Promise.all([
-        reportsApi.getBookingSummary(fromDate, toDate),
-        reportsApi.getTripSummary(fromDate, toDate),
-        reportsApi.getTopCustomers(5, fromDate, toDate),
-        reportsApi.getTopRoutes(5, fromDate, toDate)
+        reportsApi.getBookingSummary(fromDate, toDate, assignedDepotId),
+        reportsApi.getTripSummary(fromDate, toDate, assignedDepotId),
+        reportsApi.getTopCustomers(5, fromDate, toDate, assignedDepotId),
+        reportsApi.getTopRoutes(5, fromDate, toDate, assignedDepotId)
       ]);
 
       setBookingSummary(bookingRes);

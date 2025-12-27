@@ -33,17 +33,19 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
         amount: Number(b.total_amount) || 0,
         paymentMode: b.payment_method?.replace('_', ' ')?.toUpperCase() || 'Cash',
         status: b.payment_method === 'credit' || b.payment_method === 'to_pay' ? 'pending' : 'paid',
+        booking_status: b.status, // Track actual booking status
         invoiceNumber: b.receipt_number || b.id,
         receivers: b.receivers || [],
         destination_depot_id: b.destination_depot_id,
         origin_depot_id: b.origin_depot_id
       }));
 
-      // Filter for depot managers
+      // Filter for depot managers - exclude bookings not yet added to trips
       if (assignedDepotId) {
         mappedReceipts = mappedReceipts.filter((r: any) =>
-          r.destination_depot_id === assignedDepotId ||
-          r.origin_depot_id === assignedDepotId
+          (r.destination_depot_id === assignedDepotId ||
+            r.origin_depot_id === assignedDepotId) &&
+          r.booking_status !== 'booked' // Only show bookings in trips
         );
       }
 
@@ -67,62 +69,111 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
   };
 
   const handleDownload = (receipt: any) => {
-    const doc = new jsPDF();
+    // A5 size landscape: 210mm x 148mm
+    const doc = new jsPDF({ format: 'a5', unit: 'mm', orientation: 'landscape' });
     const pageWidth = doc.internal.pageSize.getWidth();
-    let y = 20;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 15;
+    let y = 15;
 
-    // Header
-    doc.setFontSize(20);
+    // ============ HEADER ============
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(247, 137, 30);
-    doc.text('DRT MANGO TRANSPORT', pageWidth / 2, y, { align: 'center' });
-    y += 15;
-
-    // Receipt Number
-    doc.setFontSize(12);
     doc.setTextColor(0, 0, 0);
-    doc.text(`Receipt: ${receipt.id}`, 15, y);
-    y += 8;
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Date: ${new Date(receipt.date).toLocaleDateString('en-IN')}`, 15, y);
-    y += 8;
-    doc.text(`Destination: ${receipt.destination}`, 15, y);
-    y += 8;
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Customer: ${receipt.customer}`, 15, y);
-    doc.setFont('helvetica', 'normal');
-    if (receipt.customerPhone) {
-      doc.text(`  (${receipt.customerPhone})`, 15 + doc.getTextWidth(`Customer: ${receipt.customer}`), y);
-    }
-    y += 12;
+    doc.text('DRT MANGO TRANSPORT', pageWidth / 2, y, { align: 'center' });
+    y += 6;
 
-    // Receivers & Packages
+    // Address line
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('AT POST JAMSANDE, TAL.DEVGAD, DIST. SINDHUDURG MOB: 9422584166, 9422435348', pageWidth / 2, y, { align: 'center' });
+    y += 8;
+
+    // Receipt Number label
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Receipt Number', pageWidth / 2, y, { align: 'center' });
+    y += 5;
+
+    // Receipt Number value
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text(receipt.id, pageWidth / 2, y, { align: 'center' });
+    y += 10;
+
+    // ============ DESTINATION & DATE (no table borders) ============
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Destination: ${receipt.destination || 'N/A'}`, margin, y);
+    doc.text(`Date: ${new Date(receipt.date).toLocaleDateString('en-IN')}`, pageWidth - margin, y, { align: 'right' });
+    y += 8;
+
+    // ============ SENDER ============
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Sender: ${receipt.customer || 'N/A'} (${receipt.customerPhone || 'N/A'})`, pageWidth / 2, y, { align: 'center' });
+    y += 10;
+
+    // ============ RECEIVERS & PACKAGES ============
     if (receipt.receivers && receipt.receivers.length > 0) {
+      doc.setFontSize(10);
       doc.setFont('helvetica', 'bold');
-      doc.text('RECEIVERS & PACKAGES', 15, y);
-      y += 6;
+      doc.text('RECEIVERS & PACKAGES', margin, y);
+      y += 10;
+
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
+
+      // Calculate center position for receivers list
+      const receiverStartX = margin + 30;
+      const packagesX = pageWidth - margin - 10;
+
       receipt.receivers.forEach((r: any, i: number) => {
-        doc.text(`${i + 1}. ${r.name} (${r.phone})`, 15, y);
-        y += 5;
-        r.packages?.forEach((pkg: any) => {
-          doc.text(`   ${pkg.size} × ${pkg.quantity} = ₹${(pkg.quantity * pkg.price_per_unit).toFixed(0)}`, 15, y);
-          y += 4;
-        });
-        y += 2;
+        // Receiver name and phone on LEFT
+        const receiverText = `${i + 1}. ${r.name?.toUpperCase() || 'N/A'} (${r.phone || 'N/A'})`;
+        doc.text(receiverText, receiverStartX, y);
+
+        // Packages on RIGHT (same line)
+        const packagesText = r.packages?.map((pkg: any) =>
+          `${pkg.size} × ${pkg.quantity} = ₹${(pkg.quantity * pkg.price_per_unit).toFixed(0)}`
+        ).join(', ') || '';
+
+        if (packagesText) {
+          doc.text(packagesText, packagesX, y, { align: 'right' });
+        }
+        y += 8;
       });
     }
 
-    // Total
     y += 5;
-    doc.setFontSize(12);
-    doc.setFillColor(254, 243, 199);
-    doc.roundedRect(15, y - 2, pageWidth - 30, 14, 3, 3, 'F');
+
+    // ============ TOTAL ============
+    doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.text('TOTAL:', 20, y + 8);
-    doc.setTextColor(22, 163, 74);
-    doc.text(`₹${receipt.amount.toLocaleString('en-IN')}`, pageWidth - 20, y + 8, { align: 'right' });
+    doc.text(`TOTAL: ₹${receipt.amount.toLocaleString('en-IN')}`, pageWidth - margin, y, { align: 'right' });
+    y += 6;
+
+    // Payment Method
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`(${receipt.paymentMode || 'CASH'})`, pageWidth - margin, y, { align: 'right' });
+    y += 12;
+
+    // ============ THANK YOU MESSAGE ============
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('THANK YOU FOR USING OUR SERVICES', pageWidth / 2, y, { align: 'center' });
+    y += 15;
+
+    // ============ SIGNATURE LINE ============
+    const signLineWidth = 40;
+    const signLineX = pageWidth - margin - signLineWidth;
+    doc.setLineWidth(0.5);
+    doc.line(signLineX, y, signLineX + signLineWidth, y);
+    y += 4;
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('SIGN', signLineX + signLineWidth / 2, y, { align: 'center' });
 
     doc.save(`${receipt.id}.pdf`);
   };
@@ -157,21 +208,6 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
         <p className="text-gray-600">View and manage all payment receipts</p>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <p className="text-sm text-gray-600 mb-1">Total Amount</p>
-          <p className="text-2xl font-bold text-gray-900">₹{(totalAmount / 1000).toFixed(1)}K</p>
-        </div>
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <p className="text-sm text-gray-600 mb-1">Paid Amount</p>
-          <p className="text-2xl font-bold text-green-600">₹{(paidAmount / 1000).toFixed(1)}K</p>
-        </div>
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <p className="text-sm text-gray-600 mb-1">Pending Amount</p>
-          <p className="text-2xl font-bold text-orange-600">₹{(pendingAmount / 1000).toFixed(1)}K</p>
-        </div>
-      </div>
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">

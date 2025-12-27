@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { tripsApi, bookingsApi, depotsApi } from '../utils/api';
 import { jsPDF } from 'jspdf';
+import { useSyncStore, useOnlineStore } from '../stores';
+import { queueOperation } from '../utils/syncEngine';
+import { isNetworkError } from '../utils/networkErrors';
 
 interface TripsDeliveriesProps {
   userRole: 'owner' | 'booking_clerk' | 'depot_manager';
@@ -33,6 +36,7 @@ interface Booking {
   origin_depot_name: string;
   total_amount: number;
   status: string;
+  payment_method: string;
   created_at: string;
   receivers: any[];
 }
@@ -44,6 +48,14 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
   const [depots, setDepots] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [toPayCollectionMethods, setToPayCollectionMethods] = useState<Record<string, string>>({});
+
+  // Track which items are pending sync
+  const [pendingDeliveries, setPendingDeliveries] = useState<Set<string>>(new Set());
+
+  // Zustand stores for offline support
+  const isOnline = useOnlineStore((state) => state.isOnline);
+  const pendingOperations = useSyncStore((state) => state.pendingOperations);
 
   useEffect(() => {
     loadData();
@@ -59,20 +71,37 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
       ]);
 
       const allTrips = tripsRes.trips || [];
-      const allBookings = bookingsRes.bookings || [];
+      let allBookings = bookingsRes.bookings || [];
 
-      // Filter data for depot managers based on assigned depot
+      // For depot managers, fetch their forwarding destinations
+      let forwardingDestinationIds: string[] = [];
+      if (userRole === 'depot_manager' && assignedDepotId) {
+        try {
+          const { depotRoutesApi } = await import('../utils/api');
+          const routesRes = await depotRoutesApi.getByDepotId(assignedDepotId);
+          forwardingDestinationIds = routesRes.forwardingDepotIds || [];
+          console.log('Forwarding destinations for Trips & Deliveries:', forwardingDestinationIds);
+        } catch (err) {
+          console.error('Error fetching depot routes:', err);
+        }
+      }
+
+      // Filter data for depot managers based on assigned depot OR forwarding destinations
       const filteredTrips = userRole === 'depot_manager' && assignedDepotId
         ? allTrips.filter((t: any) =>
           t.origin_depot_id === assignedDepotId ||
-          t.destination_depot_id === assignedDepotId
+          t.destination_depot_id === assignedDepotId ||
+          forwardingDestinationIds.includes(t.destination_depot_id)
         )
         : allTrips;
 
+      // Depot managers Deliveries tab: Only show bookings where THIS depot is the final destination
+      // NOT bookings passing through for forwarding (those should only appear in Create Forwarding Trip)
       const filteredBookings = userRole === 'depot_manager' && assignedDepotId
         ? allBookings.filter((b: any) =>
-          b.destination_depot_id === assignedDepotId ||
-          b.origin_depot_id === assignedDepotId
+          (b.destination_depot_id === assignedDepotId ||
+            b.origin_depot_id === assignedDepotId) &&
+          b.status !== 'booked'
         )
         : allBookings;
 
@@ -87,23 +116,106 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
     }
   };
 
-  const handleMarkDelivered = async (bookingId: string) => {
-    try {
-      await bookingsApi.updateStatus(bookingId, 'delivered');
-      await loadData(); // Refresh data
-    } catch (error) {
-      console.error('Error marking delivered:', error);
-      alert('Error marking as delivered');
+  const handleMarkDelivered = async (bookingId: string, paymentMethod?: string) => {
+    // Build the updates object
+    const updates: any = paymentMethod ? {
+      status: 'delivered',
+      to_pay_collected_method: paymentMethod,
+      to_pay_collected_at: new Date().toISOString()
+    } : null;
+
+    if (isOnline) {
+      try {
+        if (paymentMethod) {
+          await bookingsApi.update(bookingId, updates);
+        } else {
+          await bookingsApi.updateStatus(bookingId, 'delivered');
+        }
+
+        // Clear the payment method selection for this booking
+        if (toPayCollectionMethods[bookingId]) {
+          const newMethods = { ...toPayCollectionMethods };
+          delete newMethods[bookingId];
+          setToPayCollectionMethods(newMethods);
+        }
+
+        await loadData(); // Refresh data
+      } catch (error: any) {
+        console.error('Error marking delivered:', error);
+
+        // If network error, queue it
+        if (isNetworkError(error)) {
+          console.log('[TripsDeliveries] Network error detected, queuing delivery');
+          queueDeliveryOffline(bookingId, paymentMethod, updates);
+        } else {
+          alert('Error marking as delivered');
+        }
+      }
+    } else {
+      // Offline: Queue the operation with optimistic UI
+      queueDeliveryOffline(bookingId, paymentMethod, updates);
+    }
+  };
+
+  // Helper to queue delivery marking offline
+  const queueDeliveryOffline = (bookingId: string, paymentMethod?: string, updates?: any) => {
+    const operationId = queueOperation('MARK_DELIVERED', {
+      bookingId,
+      paymentMethod,
+      updates
+    }, {
+      entityType: 'delivery',
+      entityId: bookingId,
+      optimisticData: { status: 'delivered', markedAt: new Date().toISOString() }
+    });
+
+    // Optimistic UI update
+    setPendingDeliveries(prev => new Set([...prev, bookingId]));
+
+    // Update local state optimistically
+    setBookings(prev => prev.map(b =>
+      b.id === bookingId ? { ...b, status: 'delivered' } : b
+    ));
+
+    // Clear the payment method selection
+    if (toPayCollectionMethods[bookingId]) {
+      const newMethods = { ...toPayCollectionMethods };
+      delete newMethods[bookingId];
+      setToPayCollectionMethods(newMethods);
     }
   };
 
   const handleUpdateTripStatus = async (tripId: string, newStatus: string) => {
-    try {
-      await tripsApi.update(tripId, { status: newStatus });
-      await loadData();
-    } catch (error) {
-      console.error('Error updating trip status:', error);
-      alert('Error updating trip status');
+    if (isOnline) {
+      try {
+        await tripsApi.update(tripId, { status: newStatus });
+        await loadData();
+      } catch (error: any) {
+        console.error('Error updating trip status:', error);
+
+        if (isNetworkError(error)) {
+          console.log('[TripsDeliveries] Network error detected, queuing trip update');
+          queueOperation('UPDATE_TRIP_STATUS', { tripId, status: newStatus }, {
+            entityType: 'trip',
+            entityId: tripId
+          });
+          // Optimistic update
+          setTrips(prev => prev.map(t =>
+            t.id === tripId ? { ...t, status: newStatus } : t
+          ));
+        } else {
+          alert('Error updating trip status');
+        }
+      }
+    } else {
+      // Offline: Queue with optimistic UI
+      queueOperation('UPDATE_TRIP_STATUS', { tripId, status: newStatus }, {
+        entityType: 'trip',
+        entityId: tripId
+      });
+      setTrips(prev => prev.map(t =>
+        t.id === tripId ? { ...t, status: newStatus } : t
+      ));
     }
   };
 
@@ -266,10 +378,13 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
   };
 
   // Filter bookings for deliveries tab (in_transit or delivered)
+  // Exclude 'booked' status for safety (should already be filtered out for depot managers)
   const deliveryBookings = bookings.filter(b =>
-    statusFilter === 'all'
-      ? ['in_transit', 'delivered'].includes(b.status)
-      : b.status === statusFilter
+    b.status !== 'booked' && ( // Additional safety filter
+      statusFilter === 'all'
+        ? ['in_transit', 'delivered'].includes(b.status)
+        : b.status === statusFilter
+    )
   );
 
   // Filter trips
@@ -294,6 +409,19 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Trips & Deliveries</h1>
         <p className="text-gray-600">Track all trips and manage deliveries</p>
       </div>
+
+      {/* Offline Warning */}
+      {!isOnline && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">⚠️</span>
+            <div>
+              <span className="font-medium text-amber-800">You're currently offline. </span>
+              <span className="text-amber-700">Delivery updates will be synced when you're back online.</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-4 mb-6 border-b border-gray-200">
@@ -498,6 +626,9 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
                     Amount
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Payment
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -530,22 +661,68 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
                       </p>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${booking.payment_method === 'cash' ? 'bg-green-100 text-green-700' :
+                        booking.payment_method === 'online' ? 'bg-purple-100 text-purple-700' :
+                          booking.payment_method === 'credit' ? 'bg-yellow-100 text-yellow-700' :
+                            booking.payment_method === 'to_pay' ? 'bg-orange-100 text-orange-700' :
+                              'bg-gray-100 text-gray-700'
+                        }`}>
+                        {booking.payment_method === 'cash' ? 'Cash' :
+                          booking.payment_method === 'online' ? 'Online' :
+                            booking.payment_method === 'credit' ? 'Credit' :
+                              booking.payment_method === 'to_pay' ? 'To-Pay' :
+                                booking.payment_method || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
                         {booking.status?.replace('_', ' ')}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {booking.status === 'in_transit' && (
+                      {/* Pending sync indicator */}
+                      {pendingDeliveries.has(booking.id) && (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-600 mb-1">
+                          <span className="animate-pulse">⏳</span> Pending sync
+                        </span>
+                      )}
+                      {booking.status === 'in_transit' && booking.payment_method === 'to_pay' ? (
+                        <div className="flex flex-col gap-2 min-w-[140px]">
+                          <select
+                            value={toPayCollectionMethods[booking.id] || ''}
+                            onChange={(e) => setToPayCollectionMethods({
+                              ...toPayCollectionMethods,
+                              [booking.id]: e.target.value
+                            })}
+                            className="text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-orange-500"
+                          >
+                            <option value="">Select Payment</option>
+                            <option value="cash">Cash</option>
+                            <option value="online">Online/UPI</option>
+                          </select>
+                          <button
+                            onClick={() => handleMarkDelivered(booking.id, toPayCollectionMethods[booking.id])}
+                            disabled={!toPayCollectionMethods[booking.id]}
+                            className={`text-sm font-medium px-2 py-1 rounded ${toPayCollectionMethods[booking.id]
+                              ? 'text-green-600 hover:text-green-700 hover:bg-green-50'
+                              : 'text-gray-400 cursor-not-allowed bg-gray-50'
+                              }`}
+                          >
+                            {!isOnline ? '📤 Mark (Offline)' : 'Mark Delivered'}
+                          </button>
+                        </div>
+                      ) : booking.status === 'in_transit' ? (
                         <button
                           onClick={() => handleMarkDelivered(booking.id)}
                           className="text-sm text-green-600 hover:text-green-700 font-medium"
                         >
-                          Mark Delivered
+                          {!isOnline ? '📤 Mark (Offline)' : 'Mark Delivered'}
                         </button>
-                      )}
-                      {booking.status === 'delivered' && (
-                        <span className="text-sm text-green-600">✓ Delivered</span>
-                      )}
+                      ) : booking.status === 'delivered' ? (
+                        <span className="text-sm text-green-600">
+                          ✓ Delivered {pendingDeliveries.has(booking.id) && '(syncing...)'}
+                        </span>
+                      ) : null}
                     </td>
                   </tr>
                 )) : (
