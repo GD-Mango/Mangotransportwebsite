@@ -260,19 +260,21 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
     csv += 'TOP CUSTOMERS\n';
     csv += 'Rank,Name,Phone,Bookings,Revenue\n';
     topCustomers.forEach((c, i) => {
-      csv += `${i + 1},${c.name},${c.phone},${c.bookings},${c.revenue}\n`;
+      csv += `${i + 1},"${c.name}",${c.phone},${c.bookings},${c.revenue}\n`;
     });
     csv += '\n';
 
-    // Top Routes
+    // Top Routes - Replace → with 'to' for Excel compatibility
     csv += 'TOP ROUTES\n';
     csv += 'Rank,Route,Bookings,Revenue\n';
     topRoutes.forEach((r, i) => {
-      csv += `${i + 1},"${r.route}",${r.trips},${r.revenue}\n`;
+      const routeClean = r.route.replace(/→/g, 'to');
+      csv += `${i + 1},"${routeClean}",${r.trips},${r.revenue}\n`;
     });
 
-    // Download CSV
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    // Add UTF-8 BOM for Excel to recognize encoding
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `DRT_Report_${new Date().toISOString().split('T')[0]}.csv`;
@@ -590,10 +592,10 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-center">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${account.netOutstanding === 0
-                                ? 'bg-green-100 text-green-800'
-                                : account.totalCredit > 0 && (account.advancePaid / account.totalCredit) >= 0.5
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-red-100 text-red-800'
+                              ? 'bg-green-100 text-green-800'
+                              : account.totalCredit > 0 && (account.advancePaid / account.totalCredit) >= 0.5
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-red-100 text-red-800'
                               }`}>
                               {account.netOutstanding === 0
                                 ? 'Cleared'
