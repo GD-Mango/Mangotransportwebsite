@@ -303,6 +303,118 @@ export const bookingsApi = {
     if (error) throw error;
     return { booking: data };
   },
+
+  /**
+   * Edit a delivered receipt. Only allows editing after delivery to prevent
+   * mid-transit data inconsistencies. Updates booking and related receivers/packages.
+   * Credit ledger auto-syncs on next load since it aggregates from bookings.
+   */
+  async editDeliveredReceipt(id: string, updates: {
+    sender_name?: string;
+    sender_phone?: string;
+    payment_method?: string;
+    total_amount?: number;
+    subtotal?: number;
+    receivers?: any[];
+  }) {
+    // 1. Verify booking exists and is delivered
+    const { data: existingBooking, error: fetchError } = await supabase
+      .from('bookings')
+      .select('id, status, receipt_number')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw fetchError;
+    if (!existingBooking) throw new Error('Booking not found');
+    if (existingBooking.status !== 'delivered') {
+      throw new Error('Only delivered receipts can be edited');
+    }
+
+    // 2. Build booking update payload (only non-undefined fields)
+    const bookingUpdates: any = {};
+    if (updates.sender_name !== undefined) bookingUpdates.sender_name = updates.sender_name;
+    if (updates.sender_phone !== undefined) bookingUpdates.sender_phone = updates.sender_phone;
+    if (updates.payment_method !== undefined) bookingUpdates.payment_method = updates.payment_method;
+    if (updates.total_amount !== undefined) bookingUpdates.total_amount = updates.total_amount;
+    if (updates.subtotal !== undefined) bookingUpdates.subtotal = updates.subtotal;
+
+    // 3. Update booking record
+    if (Object.keys(bookingUpdates).length > 0) {
+      const { error: updateError } = await supabase
+        .from('bookings')
+        .update(bookingUpdates)
+        .eq('id', id);
+
+      if (updateError) throw updateError;
+    }
+
+    // 4. Update receivers and packages if provided
+    if (updates.receivers && updates.receivers.length > 0) {
+      // Delete existing receivers (cascades to packages)
+      const { error: deleteError } = await supabase
+        .from('booking_receivers')
+        .delete()
+        .eq('booking_id', id);
+
+      if (deleteError) {
+        console.error('Error deleting old receivers:', deleteError);
+        throw deleteError;
+      }
+
+      // Insert new receivers and packages
+      for (let i = 0; i < updates.receivers.length; i++) {
+        const receiver = updates.receivers[i];
+
+        const { data: receiverData, error: receiverError } = await supabase
+          .from('booking_receivers')
+          .insert({
+            booking_id: id,
+            receiver_name: receiver.name,
+            receiver_phone: receiver.phone,
+            delivery_address: receiver.address || null,
+            receiver_order: i + 1
+          })
+          .select()
+          .single();
+
+        if (receiverError) throw receiverError;
+
+        // Insert packages for this receiver
+        const packages = receiver.packages || [];
+        for (const pkg of packages) {
+          let validPackageId = null;
+          if (pkg.packageId && pkg.packageId !== 'custom' && pkg.packageId.length > 10) {
+            validPackageId = pkg.packageId;
+          }
+
+          const { error: packageError } = await supabase
+            .from('receiver_packages')
+            .insert({
+              receiver_id: receiverData.id,
+              package_id: validPackageId,
+              package_size: pkg.size || 'Custom',
+              quantity: parseInt(String(pkg.quantity)) || 1,
+              price_per_unit: parseFloat(String(pkg.price_per_unit || pkg.price)) || 0,
+              description: pkg.description || null
+            });
+
+          if (packageError) throw packageError;
+        }
+      }
+    }
+
+    // 5. Return the updated booking
+    const { data: updatedBooking, error: refetchError } = await supabase
+      .from('bookings_complete')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (refetchError) throw refetchError;
+
+    console.log('[BookingsAPI] Receipt edited successfully:', existingBooking.receipt_number);
+    return { booking: updatedBooking };
+  },
 };
 
 // Trips

@@ -14,6 +14,18 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
 
+  // Edit state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingReceipt, setEditingReceipt] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState<any>({
+    sender_name: '',
+    sender_phone: '',
+    payment_method: 'cash',
+    receivers: []
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   useEffect(() => {
     loadReceipts();
   }, []);
@@ -68,6 +80,75 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
     setTimeout(() => window.print(), 100);
   };
 
+  const handleEdit = (receipt: any) => {
+    // Find the full booking data from receipts to get receivers
+    const fullReceipt = receipts.find(r => r.bookingId === receipt.bookingId);
+    setEditingReceipt(fullReceipt);
+    setEditForm({
+      sender_name: fullReceipt?.customer || '',
+      sender_phone: fullReceipt?.customerPhone || '',
+      payment_method: fullReceipt?.paymentMode?.toLowerCase()?.replace(' ', '_') || 'cash',
+      receivers: (fullReceipt?.receivers || []).map((r: any) => ({
+        name: r.name,
+        phone: r.phone,
+        address: r.address || '',
+        packages: (r.packages || []).map((p: any) => ({
+          packageId: p.package_id || '',
+          size: p.size,
+          quantity: p.quantity,
+          price_per_unit: p.price_per_unit || p.price || 0
+        }))
+      }))
+    });
+    setEditError(null);
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingReceipt) return;
+
+    setIsSaving(true);
+    setEditError(null);
+
+    try {
+      // Calculate new total
+      let newTotal = 0;
+      editForm.receivers.forEach((r: any) => {
+        r.packages.forEach((p: any) => {
+          newTotal += (Number(p.quantity) || 0) * (Number(p.price_per_unit) || 0);
+        });
+      });
+
+      await bookingsApi.editDeliveredReceipt(editingReceipt.bookingId, {
+        sender_name: editForm.sender_name,
+        sender_phone: editForm.sender_phone,
+        payment_method: editForm.payment_method,
+        total_amount: newTotal,
+        receivers: editForm.receivers
+      });
+
+      // Refresh receipts list
+      await loadReceipts();
+      setShowEditModal(false);
+      setEditingReceipt(null);
+      alert('Receipt updated successfully!');
+    } catch (error: any) {
+      console.error('Error saving edit:', error);
+      setEditError(error.message || 'Failed to save changes');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const calculateEditTotal = () => {
+    let total = 0;
+    editForm.receivers.forEach((r: any) => {
+      r.packages.forEach((p: any) => {
+        total += (Number(p.quantity) || 0) * (Number(p.price_per_unit) || 0);
+      });
+    });
+    return total;
+  };
   const handleDownload = async (receipt: any) => {
     // Dynamically import jsPDF to reduce bundle size
     const { jsPDF } = await import('jspdf');
@@ -388,6 +469,14 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
                       >
                         Print
                       </button>
+                      {receipt.booking_status === 'delivered' && (
+                        <button
+                          onClick={() => handleEdit(receipt)}
+                          className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+                        >
+                          Edit
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDownload(receipt)}
                         className="text-sm text-green-600 hover:text-green-700 font-medium"
@@ -445,7 +534,7 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
               </div>
             </div>
 
-            <div className="flex gap-3 pt-3 border-t border-gray-100">
+            <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-100">
               <button
                 onClick={() => handleView(receipt)}
                 className="flex-1 py-2 text-sm text-orange-600 bg-orange-50 rounded-lg font-medium"
@@ -458,6 +547,14 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
               >
                 Print
               </button>
+              {receipt.booking_status === 'delivered' && (
+                <button
+                  onClick={() => handleEdit(receipt)}
+                  className="flex-1 py-2 text-sm text-purple-600 bg-purple-50 rounded-lg font-medium"
+                >
+                  Edit
+                </button>
+              )}
               <button
                 onClick={() => handleDownload(receipt)}
                 className="flex-1 py-2 text-sm text-green-600 bg-green-50 rounded-lg font-medium"
@@ -546,6 +643,195 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
                 className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
               >
                 Download PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && editingReceipt && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Edit Receipt</h2>
+                <p className="text-sm text-gray-500">{editingReceipt.id}</p>
+              </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-500 hover:text-gray-700 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            {editError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                {editError}
+              </div>
+            )}
+
+            {/* Warning for payment method changes */}
+            {editForm.payment_method === 'credit' && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+                ⚠️ This is a credit booking. Changes will affect the customer's ledger balance.
+              </div>
+            )}
+
+            {/* Sender Info */}
+            <div className="space-y-4 mb-6">
+              <h3 className="font-semibold text-gray-900">Sender Information</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Sender Name</label>
+                  <input
+                    type="text"
+                    value={editForm.sender_name}
+                    onChange={(e) => setEditForm({ ...editForm, sender_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Sender Phone</label>
+                  <input
+                    type="tel"
+                    value={editForm.sender_phone}
+                    onChange={(e) => setEditForm({ ...editForm, sender_phone: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Method */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+              <select
+                value={editForm.payment_method}
+                onChange={(e) => setEditForm({ ...editForm, payment_method: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+              >
+                <option value="cash">Cash</option>
+                <option value="credit">Credit</option>
+                <option value="to_pay">To Pay</option>
+              </select>
+            </div>
+
+            {/* Receivers & Packages */}
+            <div className="mb-6">
+              <h3 className="font-semibold text-gray-900 mb-3">Receivers & Packages</h3>
+              {editForm.receivers.map((receiver: any, rIndex: number) => (
+                <div key={rIndex} className="bg-gray-50 rounded-lg p-4 mb-4">
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">Receiver Name</label>
+                      <input
+                        type="text"
+                        value={receiver.name}
+                        onChange={(e) => {
+                          const newReceivers = [...editForm.receivers];
+                          newReceivers[rIndex].name = e.target.value;
+                          setEditForm({ ...editForm, receivers: newReceivers });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-600 mb-1">Receiver Phone</label>
+                      <input
+                        type="tel"
+                        value={receiver.phone}
+                        onChange={(e) => {
+                          const newReceivers = [...editForm.receivers];
+                          newReceivers[rIndex].phone = e.target.value;
+                          setEditForm({ ...editForm, receivers: newReceivers });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Packages */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-600">Packages</label>
+                    {receiver.packages.map((pkg: any, pIndex: number) => (
+                      <div key={pIndex} className="flex gap-2 items-center bg-white p-2 rounded border border-gray-200">
+                        <input
+                          type="text"
+                          value={pkg.size}
+                          onChange={(e) => {
+                            const newReceivers = [...editForm.receivers];
+                            newReceivers[rIndex].packages[pIndex].size = e.target.value;
+                            setEditForm({ ...editForm, receivers: newReceivers });
+                          }}
+                          placeholder="Size"
+                          className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                        />
+                        <input
+                          type="number"
+                          value={pkg.quantity}
+                          onChange={(e) => {
+                            const newReceivers = [...editForm.receivers];
+                            newReceivers[rIndex].packages[pIndex].quantity = parseInt(e.target.value) || 0;
+                            setEditForm({ ...editForm, receivers: newReceivers });
+                          }}
+                          placeholder="Qty"
+                          className="w-16 px-2 py-1 border border-gray-300 rounded text-sm"
+                        />
+                        <span className="text-gray-500">×</span>
+                        <input
+                          type="number"
+                          value={pkg.price_per_unit}
+                          onChange={(e) => {
+                            const newReceivers = [...editForm.receivers];
+                            newReceivers[rIndex].packages[pIndex].price_per_unit = parseFloat(e.target.value) || 0;
+                            setEditForm({ ...editForm, receivers: newReceivers });
+                          }}
+                          placeholder="Price"
+                          className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
+                        />
+                        <span className="text-gray-600 font-medium">
+                          = ₹{((pkg.quantity || 0) * (pkg.price_per_unit || 0)).toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Total */}
+            <div className="bg-purple-50 rounded-lg p-4 mb-6">
+              <div className="flex justify-between items-center">
+                <span className="text-lg font-bold text-gray-900">New Total:</span>
+                <span className="text-2xl font-bold text-purple-600">
+                  ₹{calculateEditTotal().toLocaleString('en-IN')}
+                </span>
+              </div>
+              {calculateEditTotal() !== editingReceipt.amount && (
+                <p className="text-sm text-gray-600 mt-1">
+                  Original: ₹{editingReceipt.amount.toLocaleString('en-IN')}
+                  (Change: {calculateEditTotal() > editingReceipt.amount ? '+' : ''}
+                  ₹{(calculateEditTotal() - editingReceipt.amount).toLocaleString('en-IN')})
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={isSaving}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
+              >
+                {isSaving ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>
