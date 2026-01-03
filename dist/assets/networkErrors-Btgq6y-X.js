@@ -1,0 +1,2 @@
+function s(e){var n;if(typeof navigator<"u"&&!navigator.onLine||e instanceof TypeError)return!0;const t=((n=e==null?void 0:e.message)==null?void 0:n.toLowerCase())||"";return["fetch","network","failed to fetch","err_name_not_resolved","err_internet_disconnected","err_connection","err_network","net::","timeout","abort","econnrefused","enotfound","socket hang up","load failed"].some(o=>t.includes(o))}export{s as i};
+//# sourceMappingURL=networkErrors-Btgq6y-X.js.map

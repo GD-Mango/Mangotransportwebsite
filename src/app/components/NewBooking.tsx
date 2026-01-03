@@ -1109,138 +1109,201 @@ function Step5Confirmation({ receiptNumber, formData, depots, onNewBooking, onNa
     const doc = new jsPDF({ format: 'a5', unit: 'mm', orientation: 'landscape' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 15;
-    let y = 15;
+    const margin = 12;
+    let y = 12;
 
     // ============ HEADER ============
-    doc.setFontSize(16);
+    doc.setFontSize(18);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(0, 0, 0);
     doc.text('DRT MANGO TRANSPORT', pageWidth / 2, y, { align: 'center' });
-    y += 6;
+    y += 5;
 
     // Address line
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text('AT POST JAMSANDE, TAL.DEVGAD, DIST. SINDHUDURG MOB: 9422584166, 9422435348', pageWidth / 2, y, { align: 'center' });
-    y += 8;
+    doc.setTextColor(80, 80, 80);
+    doc.text('AT POST JAMSANDE, TAL.DEVGAD, DIST. SINDHUDURG | MOB: 9422584166, 9422435348', pageWidth / 2, y, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    y += 6;
 
-    // Receipt Number label
+    // Divider line
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.3);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 6;
+
+    // Receipt Number & Date row
     doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Receipt No: ${receiptNumber}`, margin, y);
     doc.setFont('helvetica', 'normal');
-    doc.text('Receipt Number', pageWidth / 2, y, { align: 'center' });
-    y += 5;
+    doc.text(`Date: ${new Date().toLocaleDateString('en-IN')}`, pageWidth - margin, y, { align: 'right' });
+    y += 7;
 
-    // Receipt Number value
+    // ============ DESTINATION ============
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text(receiptNumber, pageWidth / 2, y, { align: 'center' });
-    y += 10;
-
-    // ============ DESTINATION & DATE (no table borders) ============
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
     doc.text(`Destination: ${destinationDepot?.name || 'N/A'}`, margin, y);
-    doc.text(`Date: ${new Date().toLocaleDateString('en-IN')}`, pageWidth - margin, y, { align: 'right' });
-    y += 8;
+    y += 6;
 
     // ============ SENDER ============
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Sender: ${formData?.senderName || 'N/A'} (${formData?.senderPhone || 'N/A'})`, pageWidth / 2, y, { align: 'center' });
-    y += 10;
+    doc.text(`Sender: ${formData?.senderName || 'N/A'} (${formData?.senderPhone || 'N/A'})`, margin, y);
+    y += 8;
 
-    // ============ RECEIVERS & PACKAGES ============
-    doc.setFontSize(10);
+    // ============ PROFESSIONAL TABLE ============
+    const tableMargin = margin;
+    const tableWidth = pageWidth - (2 * tableMargin);
+    const colWidths = {
+      srNo: 12,
+      receiver: 55,
+      packageSize: 40,
+      qty: 20,
+      amount: tableWidth - 12 - 55 - 40 - 20
+    };
+    const rowHeight = 7;
+    const maxY = pageHeight - 35;
+
+    // Table Header
+    doc.setFillColor(51, 51, 51);
+    doc.rect(tableMargin, y, tableWidth, rowHeight, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
-    doc.text('RECEIVERS & PACKAGES', margin, y);
-    y += 10;
 
+    let xPos = tableMargin + 3;
+    doc.text('Sr.', xPos, y + 5);
+    xPos += colWidths.srNo;
+    doc.text('Receiver', xPos, y + 5);
+    xPos += colWidths.receiver;
+    doc.text('Package Size', xPos, y + 5);
+    xPos += colWidths.packageSize;
+    doc.text('Qty', xPos, y + 5);
+    xPos += colWidths.qty;
+    doc.text('Amount', xPos, y + 5);
+    y += rowHeight;
+
+    // Table Body
+    doc.setTextColor(0, 0, 0);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
+    let rowIndex = 0;
+    let grandTotal = 0;
 
-    // Calculate center position for receivers list
-    const receiverStartX = margin + 30;
-    const packagesX = pageWidth - margin - 10;
-    const maxY = pageHeight - 40; // Leave space for total and footer
-
-    formData?.receivers?.forEach((receiver: any, i: number) => {
-      // Check if we need a new page before adding receiver
-      if (y > maxY) {
-        doc.addPage();
-        y = 15;
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-      }
-
-      // Receiver name and phone
-      const receiverText = `${i + 1}. ${receiver.name?.toUpperCase() || 'N/A'} (${receiver.phone || 'N/A'})`;
-      doc.text(receiverText, receiverStartX, y);
-      y += 6;
-
-      // Each package on its own line, right-aligned to match TOTAL
+    formData?.receivers?.forEach((receiver: any, receiverIndex: number) => {
       if (receiver.packages && receiver.packages.length > 0) {
-        doc.setFontSize(9);
-        receiver.packages.forEach((pkg: any) => {
-          // Check for page overflow before each package
+        receiver.packages.forEach((pkg: any, pkgIndex: number) => {
           if (y > maxY) {
             doc.addPage();
             y = 15;
+          }
+
+          rowIndex++;
+          const amount = pkg.quantity * pkg.price;
+          grandTotal += amount;
+
+          // Alternating row colors
+          if (rowIndex % 2 === 0) {
+            doc.setFillColor(248, 248, 248);
+            doc.rect(tableMargin, y, tableWidth, rowHeight, 'F');
+          }
+
+          // Row border
+          doc.setDrawColor(220, 220, 220);
+          const currentRowHeight = pkgIndex === 0 ? rowHeight + 3 : rowHeight; // Extra height for receiver info
+          doc.rect(tableMargin, y, tableWidth, currentRowHeight, 'S');
+
+          doc.setFontSize(9);
+          xPos = tableMargin + 3;
+          doc.text(`${rowIndex}`, xPos, y + 5);
+          xPos += colWidths.srNo;
+
+          // Show receiver name and phone on first package row
+          if (pkgIndex === 0) {
+            const receiverDisplay = `${receiver.name || 'N/A'}`.substring(0, 22);
+            doc.setFont('helvetica', 'bold');
+            doc.text(receiverDisplay, xPos, y + 4);
+            // Phone number on second line
+            doc.setFontSize(8);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(100, 100, 100);
+            doc.text(`${receiver.phone || ''}`, xPos, y + 8);
+            doc.setTextColor(0, 0, 0);
             doc.setFontSize(9);
           }
-          const pkgText = `${pkg.size} × ${pkg.quantity} = ₹${(pkg.quantity * pkg.price).toFixed(0)}`;
-          doc.text(pkgText, pageWidth - margin - 10, y, { align: 'right' });
-          y += 5;
+          xPos += colWidths.receiver;
+          doc.text(pkg.size || 'N/A', xPos, y + 5);
+          xPos += colWidths.packageSize;
+          doc.text(`${pkg.quantity}`, xPos, y + 5);
+          xPos += colWidths.qty;
+          doc.text(`₹${amount.toFixed(0)}`, xPos, y + 5);
+          y += currentRowHeight;
         });
-        doc.setFontSize(10);
       }
-
-      // Add address if home delivery (on next line, smaller)
-      if (receiver.address) {
-        if (y > maxY) {
-          doc.addPage();
-          y = 15;
-        }
-        doc.setFontSize(8);
-        doc.setTextColor(100, 100, 100);
-        doc.text(`Address: ${receiver.address}`, receiverStartX + 10, y);
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(10);
-        y += 6;
-      }
-      y += 3; // Extra spacing between receivers
     });
 
-    y += 5;
+    // Add delivery charge if any
+    if (formData?.deliveryCharge > 0) {
+      if (y > maxY) {
+        doc.addPage();
+        y = 15;
+      }
+      rowIndex++;
+      grandTotal += formData.deliveryCharge;
 
-    // ============ TOTAL ============
+      doc.setFillColor(255, 250, 240);
+      doc.rect(tableMargin, y, tableWidth, rowHeight, 'F');
+      doc.setDrawColor(220, 220, 220);
+      doc.rect(tableMargin, y, tableWidth, rowHeight, 'S');
+
+      doc.setFontSize(9);
+      xPos = tableMargin + 3;
+      doc.text(`${rowIndex}`, xPos, y + 5);
+      xPos += colWidths.srNo;
+      doc.setFont('helvetica', 'italic');
+      doc.text('Delivery Charge', xPos, y + 5);
+      doc.setFont('helvetica', 'normal');
+      xPos += colWidths.receiver + colWidths.packageSize;
+      doc.text('1', xPos, y + 5);
+      xPos += colWidths.qty;
+      doc.text(`₹${formData.deliveryCharge.toFixed(0)}`, xPos, y + 5);
+      y += rowHeight;
+    }
+
+    // ============ TOTAL ROW (Part of table) ============
+    doc.setFillColor(51, 51, 51);
+    doc.rect(tableMargin, y, tableWidth, rowHeight + 2, 'F');
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.text(`TOTAL: ₹${calculateTotal().toFixed(2)}`, pageWidth - margin, y, { align: 'right' });
-    y += 6;
 
-    // Payment Method
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
     const paymentMethodText = formData?.paymentMethod?.replace('_', ' ')?.toUpperCase() || 'CASH';
-    doc.text(`(${paymentMethodText})`, pageWidth - margin, y, { align: 'right' });
-    y += 12;
+    doc.text(`Payment: ${paymentMethodText}`, tableMargin + 3, y + 6);
+    // Align total under the Amount column
+    const totalXPos = tableMargin + colWidths.srNo + colWidths.receiver + colWidths.packageSize + colWidths.qty + 3;
+    doc.text(`TOTAL: ₹${grandTotal.toFixed(0)}`, totalXPos, y + 6);
+    y += rowHeight + 8;
+    doc.setTextColor(0, 0, 0);
 
     // ============ THANK YOU MESSAGE ============
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('THANK YOU FOR USING OUR SERVICES', pageWidth / 2, y, { align: 'center' });
-    y += 15;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text('Thank you for choosing DRT Mango Transport!', pageWidth / 2, y, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    y += 12;
 
     // ============ SIGNATURE LINE ============
-    const signLineWidth = 40;
+    const signLineWidth = 45;
     const signLineX = pageWidth - margin - signLineWidth;
-    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    doc.setLineWidth(0.4);
     doc.line(signLineX, y, signLineX + signLineWidth, y);
     y += 4;
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text('SIGN', signLineX + signLineWidth / 2, y, { align: 'center' });
+    doc.text('Authorized Signature', signLineX + signLineWidth / 2, y, { align: 'center' });
 
     doc.save(`${receiptNumber}.pdf`);
   };

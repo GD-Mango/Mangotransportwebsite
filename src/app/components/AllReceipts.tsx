@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { jsPDF } from 'jspdf';
+// jsPDF is dynamically imported when needed to reduce bundle size
 import { bookingsApi } from '../utils/api';
 
 interface AllReceiptsProps {
@@ -68,130 +68,186 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
     setTimeout(() => window.print(), 100);
   };
 
-  const handleDownload = (receipt: any) => {
+  const handleDownload = async (receipt: any) => {
+    // Dynamically import jsPDF to reduce bundle size
+    const { jsPDF } = await import('jspdf');
     // A5 size landscape: 210mm x 148mm
     const doc = new jsPDF({ format: 'a5', unit: 'mm', orientation: 'landscape' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 15;
-    let y = 15;
+    const margin = 12;
+    let y = 12;
 
     // ============ HEADER ============
-    doc.setFontSize(16);
+    doc.setFontSize(18);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(0, 0, 0);
     doc.text('DRT MANGO TRANSPORT', pageWidth / 2, y, { align: 'center' });
-    y += 6;
+    y += 5;
 
     // Address line
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text('AT POST JAMSANDE, TAL.DEVGAD, DIST. SINDHUDURG MOB: 9422584166, 9422435348', pageWidth / 2, y, { align: 'center' });
-    y += 8;
+    doc.setTextColor(80, 80, 80);
+    doc.text('AT POST JAMSANDE, TAL.DEVGAD, DIST. SINDHUDURG | MOB: 9422584166, 9422435348', pageWidth / 2, y, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    y += 6;
 
-    // Receipt Number label
+    // Divider line
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.3);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 6;
+
+    // Receipt Number & Date row
     doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Receipt No: ${receipt.id}`, margin, y);
     doc.setFont('helvetica', 'normal');
-    doc.text('Receipt Number', pageWidth / 2, y, { align: 'center' });
-    y += 5;
+    doc.text(`Date: ${new Date(receipt.date).toLocaleDateString('en-IN')}`, pageWidth - margin, y, { align: 'right' });
+    y += 7;
 
-    // Receipt Number value
+    // ============ DESTINATION ============
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text(receipt.id, pageWidth / 2, y, { align: 'center' });
-    y += 10;
-
-    // ============ DESTINATION & DATE (no table borders) ============
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
     doc.text(`Destination: ${receipt.destination || 'N/A'}`, margin, y);
-    doc.text(`Date: ${new Date(receipt.date).toLocaleDateString('en-IN')}`, pageWidth - margin, y, { align: 'right' });
-    y += 8;
+    y += 6;
 
     // ============ SENDER ============
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Sender: ${receipt.customer || 'N/A'} (${receipt.customerPhone || 'N/A'})`, pageWidth / 2, y, { align: 'center' });
-    y += 10;
+    doc.text(`Sender: ${receipt.customer || 'N/A'} (${receipt.customerPhone || 'N/A'})`, margin, y);
+    y += 8;
 
-    // ============ RECEIVERS & PACKAGES ============
+    // ============ PROFESSIONAL TABLE ============
+    const tableMargin = margin;
+    const tableWidth = pageWidth - (2 * tableMargin);
+    const colWidths = {
+      srNo: 12,
+      receiver: 55,
+      packageSize: 40,
+      qty: 20,
+      amount: tableWidth - 12 - 55 - 40 - 20
+    };
+    const rowHeight = 7;
+    const maxY = pageHeight - 35;
+
+    // Table Header
+    doc.setFillColor(51, 51, 51);
+    doc.rect(tableMargin, y, tableWidth, rowHeight, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+
+    let xPos = tableMargin + 3;
+    doc.text('Sr.', xPos, y + 5);
+    xPos += colWidths.srNo;
+    doc.text('Receiver', xPos, y + 5);
+    xPos += colWidths.receiver;
+    doc.text('Package Size', xPos, y + 5);
+    xPos += colWidths.packageSize;
+    doc.text('Qty', xPos, y + 5);
+    xPos += colWidths.qty;
+    doc.text('Amount', xPos, y + 5);
+    y += rowHeight;
+
+    // Table Body
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal');
+    let rowIndex = 0;
+    let grandTotal = 0;
+
     if (receipt.receivers && receipt.receivers.length > 0) {
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text('RECEIVERS & PACKAGES', margin, y);
-      y += 10;
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-
-      // Calculate center position for receivers list
-      const receiverStartX = margin + 30;
-      const packagesX = pageWidth - margin - 10;
-      const maxY = pageHeight - 40; // Leave space for total and footer
-
-      receipt.receivers.forEach((r: any, i: number) => {
-        // Check if we need a new page before adding receiver
-        if (y > maxY) {
-          doc.addPage();
-          y = 15;
-          doc.setFontSize(10);
-          doc.setFont('helvetica', 'normal');
-        }
-
-        // Receiver name and phone
-        const receiverText = `${i + 1}. ${r.name?.toUpperCase() || 'N/A'} (${r.phone || 'N/A'})`;
-        doc.text(receiverText, receiverStartX, y);
-        y += 6;
-
-        // Each package on its own line, right-aligned to match TOTAL
+      receipt.receivers.forEach((r: any) => {
         if (r.packages && r.packages.length > 0) {
-          doc.setFontSize(9);
-          r.packages.forEach((pkg: any) => {
-            // Check for page overflow before each package
+          r.packages.forEach((pkg: any, pkgIndex: number) => {
             if (y > maxY) {
               doc.addPage();
               y = 15;
+            }
+
+            rowIndex++;
+            const amount = pkg.quantity * pkg.price_per_unit;
+            grandTotal += amount;
+
+            // Alternating row colors
+            if (rowIndex % 2 === 0) {
+              doc.setFillColor(248, 248, 248);
+              doc.rect(tableMargin, y, tableWidth, rowHeight, 'F');
+            }
+
+            // Row border
+            doc.setDrawColor(220, 220, 220);
+            const currentRowHeight = pkgIndex === 0 ? rowHeight + 3 : rowHeight; // Extra height for receiver info
+            doc.rect(tableMargin, y, tableWidth, currentRowHeight, 'S');
+
+            doc.setFontSize(9);
+            xPos = tableMargin + 3;
+            doc.text(`${rowIndex}`, xPos, y + 5);
+            xPos += colWidths.srNo;
+
+            // Show receiver name and phone on first package row
+            if (pkgIndex === 0) {
+              const receiverDisplay = `${r.name || 'N/A'}`.substring(0, 22);
+              doc.setFont('helvetica', 'bold');
+              doc.text(receiverDisplay, xPos, y + 4);
+              // Phone number on second line
+              doc.setFontSize(8);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(100, 100, 100);
+              doc.text(`${r.phone || ''}`, xPos, y + 8);
+              doc.setTextColor(0, 0, 0);
               doc.setFontSize(9);
             }
-            const pkgText = `${pkg.size} × ${pkg.quantity} = ₹${(pkg.quantity * pkg.price_per_unit).toFixed(0)}`;
-            doc.text(pkgText, pageWidth - margin - 10, y, { align: 'right' });
-            y += 5;
+            xPos += colWidths.receiver;
+            doc.text(pkg.size || 'N/A', xPos, y + 5);
+            xPos += colWidths.packageSize;
+            doc.text(`${pkg.quantity}`, xPos, y + 5);
+            xPos += colWidths.qty;
+            doc.text(`₹${amount.toFixed(0)}`, xPos, y + 5);
+            y += currentRowHeight;
           });
-          doc.setFontSize(10);
         }
-        y += 3; // Extra spacing between receivers
       });
     }
 
-    y += 5;
+    // Use receipt amount if grandTotal is 0 (fallback)
+    if (grandTotal === 0) {
+      grandTotal = receipt.amount || 0;
+    }
 
-    // ============ TOTAL ============
+    // ============ TOTAL ROW (Part of table) ============
+    doc.setFillColor(51, 51, 51);
+    doc.rect(tableMargin, y, tableWidth, rowHeight + 2, 'F');
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.text(`TOTAL: ₹${receipt.amount.toLocaleString('en-IN')}`, pageWidth - margin, y, { align: 'right' });
-    y += 6;
 
-    // Payment Method
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`(${receipt.paymentMode || 'CASH'})`, pageWidth - margin, y, { align: 'right' });
-    y += 12;
+    doc.text(`Payment: ${receipt.paymentMode || 'CASH'}`, tableMargin + 3, y + 6);
+    // Align total under the Amount column
+    const totalXPos = tableMargin + colWidths.srNo + colWidths.receiver + colWidths.packageSize + colWidths.qty + 3;
+    doc.text(`TOTAL: ₹${grandTotal.toLocaleString('en-IN')}`, totalXPos, y + 6);
+    y += rowHeight + 8;
+    doc.setTextColor(0, 0, 0);
 
     // ============ THANK YOU MESSAGE ============
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('THANK YOU FOR USING OUR SERVICES', pageWidth / 2, y, { align: 'center' });
-    y += 15;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text('Thank you for choosing DRT Mango Transport!', pageWidth / 2, y, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    y += 12;
 
     // ============ SIGNATURE LINE ============
-    const signLineWidth = 40;
+    const signLineWidth = 45;
     const signLineX = pageWidth - margin - signLineWidth;
-    doc.setLineWidth(0.5);
+    doc.setDrawColor(150, 150, 150);
+    doc.setLineWidth(0.4);
     doc.line(signLineX, y, signLineX + signLineWidth, y);
     y += 4;
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text('SIGN', signLineX + signLineWidth / 2, y, { align: 'center' });
+    doc.text('Authorized Signature', signLineX + signLineWidth / 2, y, { align: 'center' });
 
     doc.save(`${receipt.id}.pdf`);
   };
@@ -220,7 +276,7 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
   if (isLoading) return <div className="p-8">Loading receipts...</div>;
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">All Receipts</h1>
         <p className="text-gray-600">View and manage all payment receipts</p>
@@ -253,8 +309,8 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
         </div>
       </div>
 
-      {/* Receipts Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Receipts Table - Desktop */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -348,6 +404,72 @@ export default function AllReceipts({ assignedDepotId }: AllReceiptsProps) {
 
         {filteredReceipts.length === 0 && (
           <div className="p-12 text-center">
+            <p className="text-gray-500">No receipts found matching your criteria</p>
+          </div>
+        )}
+      </div>
+
+      {/* Receipts Cards - Mobile */}
+      <div className="md:hidden space-y-4">
+        {filteredReceipts.map((receipt) => (
+          <div key={receipt.id} className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <p className="font-bold text-gray-900">{receipt.id}</p>
+                <p className="text-xs text-gray-500">{new Date(receipt.date).toLocaleDateString('en-IN', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric'
+                })}</p>
+              </div>
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${receipt.status === 'paid'
+                ? 'bg-green-100 text-green-700'
+                : 'bg-orange-100 text-orange-700'
+                }`}>
+                {receipt.status}
+              </span>
+            </div>
+
+            <div className="space-y-2 mb-4">
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Customer</span>
+                <span className="text-sm font-medium text-gray-900">{receipt.customer}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Amount</span>
+                <span className="text-sm font-bold text-gray-900">₹{receipt.amount.toLocaleString('en-IN')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-gray-600">Payment</span>
+                <span className="text-sm text-gray-900">{receipt.paymentMode}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-3 border-t border-gray-100">
+              <button
+                onClick={() => handleView(receipt)}
+                className="flex-1 py-2 text-sm text-orange-600 bg-orange-50 rounded-lg font-medium"
+              >
+                View
+              </button>
+              <button
+                onClick={() => handlePrint(receipt)}
+                className="flex-1 py-2 text-sm text-blue-600 bg-blue-50 rounded-lg font-medium"
+              >
+                Print
+              </button>
+              <button
+                onClick={() => handleDownload(receipt)}
+                className="flex-1 py-2 text-sm text-green-600 bg-green-50 rounded-lg font-medium"
+              >
+                Download
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {filteredReceipts.length === 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
             <p className="text-gray-500">No receipts found matching your criteria</p>
           </div>
         )}

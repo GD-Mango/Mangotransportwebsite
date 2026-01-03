@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { creditApi, packagesApi, depotsApi, depotPricingApi } from '../utils/api';
-import { jsPDF } from 'jspdf';
+// jsPDF is dynamically imported when needed to reduce bundle size
 
 interface CreditLedgerProps {
   assignedDepotId?: string | null;
@@ -242,7 +242,9 @@ export default function CreditLedger({ assignedDepotId }: CreditLedgerProps) {
     link.click();
   };
 
-  const generatePaymentReceipt = (payment: any, account: any) => {
+  const generatePaymentReceipt = async (payment: any, account: any) => {
+    // Dynamically import jsPDF to reduce bundle size
+    const { jsPDF } = await import('jspdf');
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     let y = 20;
@@ -325,30 +327,29 @@ export default function CreditLedger({ assignedDepotId }: CreditLedgerProps) {
   const customerDepots = selectedAccount?.depots || [];
   const relevantDepots = depots.filter(d => customerDepots.includes(d.id));
 
-  if (isLoading) return <div className="p-8">Loading credit data...</div>;
+  if (isLoading) return <div className="p-4 md:p-8">Loading credit data...</div>;
 
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Credit Ledger</h1>
-        <p className="text-gray-600">Manage customer credit accounts, pricing, and payments</p>
+    <div className="p-4 md:p-8">
+      <div className="mb-6 md:mb-8">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">Credit Ledger</h1>
+        <p className="text-gray-600 text-sm md:text-base">Manage customer credit accounts, pricing, and payments</p>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6">
+        <div className="bg-white rounded-xl p-4 md:p-6 border border-gray-200">
           <p className="text-sm text-gray-600 mb-1">Total Credit Issued</p>
-          <p className="text-2xl font-bold text-gray-900">₹{(totals.totalCredit / 100000).toFixed(2)}L</p>
+          <p className="text-xl md:text-2xl font-bold text-gray-900">₹{(totals.totalCredit / 100000).toFixed(2)}L</p>
         </div>
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
+        <div className="bg-white rounded-xl p-4 md:p-6 border border-gray-200">
           <p className="text-sm text-gray-600 mb-1">Advance Paid</p>
-          <p className="text-2xl font-bold text-green-600">
+          <p className="text-xl md:text-2xl font-bold text-green-600">
             ₹{totals.totalAdvancePaid >= 100000 ? (totals.totalAdvancePaid / 100000).toFixed(2) + 'L' : totals.totalAdvancePaid.toLocaleString('en-IN')}
           </p>
         </div>
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
+        <div className="bg-white rounded-xl p-4 md:p-6 border border-gray-200">
           <p className="text-sm text-gray-600 mb-1">Net Outstanding</p>
-          <p className="text-2xl font-bold text-orange-600">
+          <p className="text-xl md:text-2xl font-bold text-orange-600">
             ₹{totals.totalNetOutstanding >= 100000 ? (totals.totalNetOutstanding / 100000).toFixed(2) + 'L' : totals.totalNetOutstanding.toLocaleString('en-IN')}
           </p>
         </div>
@@ -450,21 +451,29 @@ export default function CreditLedger({ assignedDepotId }: CreditLedgerProps) {
                 </div>
               </div>
 
-              {/* Tabs */}
-              <div className="flex border-b border-gray-200">
+              {/* Tabs - 2x2 grid on mobile, flex on desktop */}
+              <div className="grid grid-cols-2 md:flex border-b border-gray-200">
                 {(['bookings', 'payments', 'pricing', 'settlement'] as const).map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
-                    className={`px-6 py-3 text-sm font-medium transition-colors ${activeTab === tab
+                    className={`px-3 md:px-6 py-3 text-xs md:text-sm font-medium transition-colors flex flex-col md:flex-row items-center justify-center gap-1 ${activeTab === tab
                       ? 'text-orange-600 border-b-2 border-orange-500 bg-orange-50'
-                      : 'text-gray-500 hover:text-gray-700'
+                      : 'text-gray-500 hover:text-gray-700 border-b-2 border-transparent'
                       }`}
                   >
-                    {tab === 'bookings' && '📦 Bookings'}
-                    {tab === 'payments' && '💰 Payments'}
-                    {tab === 'pricing' && '⚡ Set Pricing'}
-                    {tab === 'settlement' && '📊 Settlement'}
+                    <span className="text-base md:mr-1">
+                      {tab === 'bookings' && '📦'}
+                      {tab === 'payments' && '💰'}
+                      {tab === 'pricing' && '⚡'}
+                      {tab === 'settlement' && '📊'}
+                    </span>
+                    <span>
+                      {tab === 'bookings' && 'Bookings'}
+                      {tab === 'payments' && 'Payments'}
+                      {tab === 'pricing' && 'Set Pricing'}
+                      {tab === 'settlement' && 'Settlement'}
+                    </span>
                   </button>
                 ))}
               </div>

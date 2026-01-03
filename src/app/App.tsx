@@ -1,18 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { depotsApi } from './utils/api';
-import LoginPage from './components/LoginPage';
-import Dashboard from './components/Dashboard';
-import NewBooking from './components/NewBooking';
-import TripCreation from './components/TripCreation';
-import TripsDeliveries from './components/TripsDeliveries';
-import Reports from './components/Reports';
-import DepotReports from './components/DepotReports';
-import AllReceipts from './components/AllReceipts';
-import CreditLedger from './components/CreditLedger';
-import Settings from './components/Settings';
+
+// Lazy load all page components for code splitting
+// This significantly reduces the initial bundle size
+const LoginPage = React.lazy(() => import('./components/LoginPage'));
+const Dashboard = React.lazy(() => import('./components/Dashboard'));
+const NewBooking = React.lazy(() => import('./components/NewBooking'));
+const TripCreation = React.lazy(() => import('./components/TripCreation'));
+const TripsDeliveries = React.lazy(() => import('./components/TripsDeliveries'));
+const Reports = React.lazy(() => import('./components/Reports'));
+const DepotReports = React.lazy(() => import('./components/DepotReports'));
+const AllReceipts = React.lazy(() => import('./components/AllReceipts'));
+const CreditLedger = React.lazy(() => import('./components/CreditLedger'));
+const Settings = React.lazy(() => import('./components/Settings'));
+
+// Keep these as static imports since they're always needed
 import OfflineIndicator from './components/OfflineIndicator';
 import ConflictResolver from './components/ConflictResolver';
 import { startSyncEngine, stopSyncEngine } from './utils/syncEngine';
+
+// Loading fallback component
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-gray-500 text-sm">Loading...</p>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -45,7 +62,7 @@ export default function App() {
 
     console.log('handleLogin called:', { role, id, depotId }); // Debug log
 
-    // Fetch depot info for depot managers
+    // Fetch depot info for depot managers, reset for other roles
     if (role === 'depot_manager' && depotId) {
       console.log('Fetching depot info for:', depotId); // Debug log
       try {
@@ -54,7 +71,11 @@ export default function App() {
         setDepotInfo(info);
       } catch (error) {
         console.error('Error fetching depot info:', error);
+        setDepotInfo(null);
       }
+    } else {
+      // Reset depot info for non-depot_manager roles to prevent stale state
+      setDepotInfo(null);
     }
     setCurrentPage('dashboard');
   };
@@ -63,10 +84,19 @@ export default function App() {
     setIsLoggedIn(false);
     setCurrentPage('dashboard');
     setSidebarOpen(false);
+    // Reset all user-related state to prevent stale data issues
+    setUserRole(null);
+    setUserId(null);
+    setAssignedDepotId(null);
+    setDepotInfo(null);
   };
 
   if (!isLoggedIn) {
-    return <LoginPage onLogin={handleLogin} />;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <LoginPage onLogin={handleLogin} />
+      </Suspense>
+    );
   }
 
   return (
@@ -226,16 +256,18 @@ export default function App() {
 
         {/* Main Content - Add top padding on mobile for fixed header */}
         <main className="flex-1 pt-16 lg:pt-0">
-          {currentPage === 'dashboard' && <Dashboard userRole={userRole} assignedDepotId={assignedDepotId} />}
-          {currentPage === 'new_booking' && (userRole === 'owner' || userRole === 'booking_clerk') && <NewBooking onNavigate={handlePageChange} />}
-          {currentPage === 'trip_creation' && (userRole === 'owner' || userRole === 'booking_clerk' ||
-            (userRole === 'depot_manager' && depotInfo?.forwarding_enabled)) && <TripCreation userRole={userRole} assignedDepotId={assignedDepotId} />}
-          {currentPage === 'trips_deliveries' && <TripsDeliveries userRole={userRole} assignedDepotId={assignedDepotId} />}
-          {currentPage === 'reports' && userRole === 'owner' && <Reports assignedDepotId={assignedDepotId} />}
-          {currentPage === 'reports' && userRole === 'depot_manager' && assignedDepotId && <DepotReports assignedDepotId={assignedDepotId} />}
-          {currentPage === 'receipts' && (userRole === 'owner' || userRole === 'depot_manager') && <AllReceipts assignedDepotId={assignedDepotId} />}
-          {currentPage === 'credit_ledger' && userRole === 'owner' && <CreditLedger assignedDepotId={assignedDepotId} />}
-          {currentPage === 'settings' && userRole === 'owner' && <Settings userRole={userRole} />}
+          <Suspense fallback={<PageLoader />}>
+            {currentPage === 'dashboard' && <Dashboard userRole={userRole} assignedDepotId={assignedDepotId} />}
+            {currentPage === 'new_booking' && (userRole === 'owner' || userRole === 'booking_clerk') && <NewBooking onNavigate={handlePageChange} />}
+            {currentPage === 'trip_creation' && (userRole === 'owner' || userRole === 'booking_clerk' ||
+              (userRole === 'depot_manager' && depotInfo?.forwarding_enabled)) && <TripCreation userRole={userRole} assignedDepotId={assignedDepotId} />}
+            {currentPage === 'trips_deliveries' && <TripsDeliveries userRole={userRole} assignedDepotId={assignedDepotId} />}
+            {currentPage === 'reports' && userRole === 'owner' && <Reports assignedDepotId={assignedDepotId} />}
+            {currentPage === 'reports' && userRole === 'depot_manager' && assignedDepotId && <DepotReports assignedDepotId={assignedDepotId} />}
+            {currentPage === 'receipts' && (userRole === 'owner' || userRole === 'depot_manager') && <AllReceipts assignedDepotId={assignedDepotId} />}
+            {currentPage === 'credit_ledger' && userRole === 'owner' && <CreditLedger assignedDepotId={assignedDepotId} />}
+            {currentPage === 'settings' && userRole === 'owner' && <Settings userRole={userRole} />}
+          </Suspense>
         </main>
       </div>
     </div>

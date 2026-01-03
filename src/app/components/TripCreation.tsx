@@ -299,7 +299,7 @@ export default function TripCreation({ userRole, assignedDepotId }: TripCreation
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <div className="text-center py-12">
           <div className="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
           <p className="text-gray-600">Loading trip data...</p>
@@ -309,9 +309,9 @@ export default function TripCreation({ userRole, assignedDepotId }: TripCreation
   }
 
   return (
-    <div className="p-8 max-w-full overflow-x-hidden">
+    <div className="p-4 md:p-8 max-w-full overflow-x-hidden">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Trip Creation</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">Trip Creation</h1>
         <p className="text-gray-600">Create a new transport trip and assign bookings</p>
       </div>
 
@@ -381,12 +381,12 @@ export default function TripCreation({ userRole, assignedDepotId }: TripCreation
       {/* Inventory Summary Cards */}
       <div className="mb-6">
         <h2 className="font-bold text-gray-900 mb-4">System Inventory - Pending Bookings</h2>
-        {/* Container with viewport-based width to prevent horizontal page scroll */}
-        <div className="w-[calc(100vw-320px)] max-w-full overflow-hidden">
-          <div className="flex gap-4 overflow-x-auto pb-3">
+        {/* Container with viewport-based width - responsive for mobile vs desktop */}
+        <div className="w-[calc(100vw-2rem)] md:w-[calc(100vw-320px)] max-w-full overflow-hidden -mx-4 md:mx-0 px-4 md:px-0">
+          <div className="flex gap-3 md:gap-4 overflow-x-auto pb-3 snap-x snap-mandatory">
             {/* Total Inventory Card - First */}
             {availableBookings.length > 0 && (
-              <div className="bg-orange-50 rounded-lg border-2 border-orange-300 p-4 min-w-[180px] max-w-[200px] flex-shrink-0">
+              <div className="bg-orange-50 rounded-lg border-2 border-orange-300 p-3 md:p-4 min-w-[160px] md:min-w-[180px] max-w-[180px] md:max-w-[200px] flex-shrink-0 snap-start">
                 <p className="text-sm font-bold text-orange-700 mb-2">📦 Total Inventory</p>
                 <p className="text-xs text-gray-600 mb-2">{availableBookings.length} total bookings</p>
                 <div className="space-y-1 max-h-[140px] overflow-y-auto">
@@ -402,7 +402,7 @@ export default function TripCreation({ userRole, assignedDepotId }: TripCreation
 
             {/* Per-Depot Cards */}
             {Object.entries(inventoryByDestination).map(([depot, data]) => (
-              <div key={depot} className="bg-white rounded-lg border border-gray-200 p-4 min-w-[180px] max-w-[200px] flex-shrink-0">
+              <div key={depot} className="bg-white rounded-lg border border-gray-200 p-3 md:p-4 min-w-[160px] md:min-w-[180px] max-w-[180px] md:max-w-[200px] flex-shrink-0 snap-start">
                 <p className="text-sm font-bold text-gray-900 truncate mb-2">{depot}</p>
                 <p className="text-xs text-gray-500 mb-2">{data.bookings.length} bookings</p>
                 <div className="space-y-1 max-h-[140px] overflow-y-auto">

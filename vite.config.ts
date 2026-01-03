@@ -19,4 +19,39 @@ export default defineConfig({
   server: {
     host: true, // Expose to network for mobile testing
   },
+  build: {
+    // Generate source maps for production debugging
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Core React - changes rarely, cache long
+          'vendor-react': ['react', 'react-dom'],
+          // UI library components - moderate change frequency
+          'vendor-radix': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-select',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-popover',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-checkbox',
+            '@radix-ui/react-switch',
+            '@radix-ui/react-tooltip',
+          ],
+          // Heavy charting library - load separately
+          'vendor-charts': ['recharts'],
+          // PDF generation - only needed when printing
+          'vendor-pdf': ['jspdf', 'html2canvas'],
+          // Date utilities
+          'vendor-date': ['date-fns'],
+          // State management
+          'vendor-state': ['zustand'],
+        },
+      },
+    },
+    // Enable modulepreload polyfill for older browsers
+    modulePreload: {
+      polyfill: true,
+    },
+  },
 })

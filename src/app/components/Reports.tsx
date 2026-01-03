@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { reportsApi, creditApi } from '../utils/api';
-import { jsPDF } from 'jspdf';
+// jsPDF is dynamically imported when needed to reduce bundle size
 
 interface BookingSummary {
   totalBookings: number;
@@ -137,7 +137,9 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
     return `₹${amount.toLocaleString('en-IN')}`;
   };
 
-  const exportToPDF = () => {
+  const exportToPDF = async () => {
+    // Dynamically import jsPDF to reduce bundle size
+    const { jsPDF } = await import('jspdf');
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     let y = 20;
@@ -380,7 +382,7 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         <div className="text-center py-12">
           <div className="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
           <p className="text-gray-600">Loading reports...</p>
@@ -390,14 +392,14 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8 overflow-x-hidden">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Reports</h1>
         <p className="text-gray-600">Analytics and business insights</p>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 md:p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label htmlFor="reportType" className="block text-sm font-medium text-gray-700 mb-2">
@@ -529,7 +531,7 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
           <h2 className="font-bold text-gray-900">Revenue by Payment Method</h2>
         </div>
         <div className="p-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <div className="bg-green-50 rounded-lg p-4 text-center">
               <p className="text-sm text-gray-600 mb-1">Cash</p>
               <p className="text-xl font-bold text-green-600">{formatCurrency(bookingSummary.revenueByMethod.cash)}</p>
@@ -558,18 +560,18 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
           </div>
           <div className="divide-y divide-gray-200">
             {topCustomers.length > 0 ? topCustomers.map((customer, index) => (
-              <div key={index} className="p-6 hover:bg-gray-50 transition-colors">
-                <div className="flex items-center justify-between mb-2">
+              <div key={index} className="p-4 md:p-6 hover:bg-gray-50 transition-colors">
+                <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
                       <span className="font-bold text-orange-600">{index + 1}</span>
                     </div>
-                    <div>
-                      <span className="font-medium text-gray-900">{customer.name}</span>
+                    <div className="min-w-0">
+                      <span className="font-medium text-gray-900 block truncate">{customer.name}</span>
                       <p className="text-xs text-gray-500">{customer.phone}</p>
                     </div>
                   </div>
-                  <span className="font-bold text-orange-600">
+                  <span className="font-bold text-orange-600 whitespace-nowrap text-sm md:text-base">
                     {formatCurrency(customer.revenue)}
                   </span>
                 </div>
@@ -592,15 +594,15 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
           </div>
           <div className="divide-y divide-gray-200">
             {topRoutes.length > 0 ? topRoutes.map((route, index) => (
-              <div key={index} className="p-6 hover:bg-gray-50 transition-colors">
-                <div className="flex items-center justify-between mb-2">
+              <div key={index} className="p-4 md:p-6 hover:bg-gray-50 transition-colors">
+                <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                       <span className="font-bold text-blue-600">{index + 1}</span>
                     </div>
-                    <span className="font-medium text-gray-900">{route.route}</span>
+                    <span className="font-medium text-gray-900 break-words text-sm md:text-base">{route.route}</span>
                   </div>
-                  <span className="font-bold text-orange-600">
+                  <span className="font-bold text-orange-600 whitespace-nowrap text-sm md:text-base">
                     {formatCurrency(route.revenue)}
                   </span>
                 </div>
@@ -621,13 +623,13 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
       {reportType === 'credit' && (
         <div className="mt-6">
           {/* Credit Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="bg-white rounded-xl p-6 border border-gray-200">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6">
+            <div className="bg-white rounded-xl p-4 md:p-6 border border-gray-200">
               <p className="text-sm text-gray-600 mb-1">Total Credit Issued</p>
               <p className="text-2xl font-bold text-gray-900">{formatCurrency(creditSummary.totalCredit)}</p>
               <p className="text-xs text-gray-500 mt-1">{creditSummary.accounts.length} credit customers</p>
             </div>
-            <div className="bg-white rounded-xl p-6 border border-gray-200">
+            <div className="bg-white rounded-xl p-4 md:p-6 border border-gray-200">
               <p className="text-sm text-gray-600 mb-1">Advance Paid</p>
               <p className="text-2xl font-bold text-green-600">{formatCurrency(creditSummary.totalAdvancePaid)}</p>
               <p className="text-xs text-gray-500 mt-1">
@@ -636,7 +638,7 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
                   : '0% collected'}
               </p>
             </div>
-            <div className="bg-white rounded-xl p-6 border border-gray-200">
+            <div className="bg-white rounded-xl p-4 md:p-6 border border-gray-200">
               <p className="text-sm text-gray-600 mb-1">Net Outstanding</p>
               <p className="text-2xl font-bold text-orange-600">{formatCurrency(creditSummary.totalNetOutstanding)}</p>
               <p className="text-xs text-gray-500 mt-1">
@@ -645,8 +647,8 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
             </div>
           </div>
 
-          {/* Credit Customers Table */}
-          <div className="bg-white rounded-xl border border-gray-200">
+          {/* Credit Customers Table - Desktop */}
+          <div className="bg-white rounded-xl border border-gray-200 hidden md:block">
             <div className="p-6 border-b border-gray-200">
               <h2 className="font-bold text-gray-900">Credit Customers</h2>
               <p className="text-sm text-gray-500 mt-1">Customers with credit payment method bookings</p>
@@ -712,6 +714,66 @@ export default function Reports({ assignedDepotId }: ReportsProps) {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          {/* Credit Customers Cards - Mobile */}
+          <div className="md:hidden">
+            <div className="bg-white rounded-xl border border-gray-200 mb-4">
+              <div className="p-4 border-b border-gray-200">
+                <h2 className="font-bold text-gray-900">Credit Customers</h2>
+                <p className="text-sm text-gray-500">Customers with credit bookings</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {creditSummary.accounts.length > 0 ? (
+                [...creditSummary.accounts]
+                  .sort((a, b) => b.netOutstanding - a.netOutstanding)
+                  .map((account) => (
+                    <div key={account.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <p className="font-bold text-gray-900">{account.customer}</p>
+                          <p className="text-xs text-gray-500">{account.phone}</p>
+                        </div>
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${account.netOutstanding === 0
+                          ? 'bg-green-100 text-green-800'
+                          : account.totalCredit > 0 && (account.advancePaid / account.totalCredit) >= 0.5
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-red-100 text-red-800'
+                          }`}>
+                          {account.netOutstanding === 0
+                            ? 'Cleared'
+                            : account.totalCredit > 0 && (account.advancePaid / account.totalCredit) >= 0.5
+                              ? 'Partial'
+                              : 'Pending'}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-sm text-gray-600">Bookings</span>
+                          <span className="text-sm font-medium text-gray-900">{account.bookingCount}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-gray-600">Total Credit</span>
+                          <span className="text-sm font-medium text-gray-900">{formatCurrency(account.totalCredit)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-gray-600">Paid</span>
+                          <span className="text-sm font-medium text-green-600">{formatCurrency(account.advancePaid)}</span>
+                        </div>
+                        <div className="flex justify-between pt-2 border-t border-gray-100">
+                          <span className="text-sm font-medium text-gray-900">Outstanding</span>
+                          <span className="text-sm font-bold text-orange-600">{formatCurrency(account.netOutstanding)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+              ) : (
+                <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-500">
+                  No credit customers found
+                </div>
+              )}
             </div>
           </div>
         </div>

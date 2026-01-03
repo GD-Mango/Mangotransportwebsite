@@ -1238,6 +1238,7 @@ function BackupRestore() {
   const [isCreatingBackup, setIsCreatingBackup] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [backupData, setBackupData] = useState<any>(null);
+  const [backupPreview, setBackupPreview] = useState<any>(null);
 
   const handleCreateBackup = async () => {
     setIsCreatingBackup(true);
@@ -1250,7 +1251,7 @@ function BackupRestore() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `mango-express-backup-${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `mango-transport-backup-${new Date().toISOString().split('T')[0]}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1259,7 +1260,7 @@ function BackupRestore() {
       alert('Backup created and downloaded successfully!');
     } catch (error) {
       console.error('Error creating backup:', error);
-      alert('Failed to create backup');
+      alert('Failed to create backup. Check console for details.');
     } finally {
       setIsCreatingBackup(false);
     }
@@ -1274,9 +1275,15 @@ function BackupRestore() {
       try {
         const backup = JSON.parse(event.target?.result as string);
         setBackupData(backup);
+
+        // Generate preview
+        const preview = backupApi.getPreview(backup);
+        setBackupPreview(preview);
       } catch (error) {
         console.error('Error parsing backup file:', error);
         alert('Invalid backup file format');
+        setBackupData(null);
+        setBackupPreview(null);
       }
     };
     reader.readAsText(file);
@@ -1288,21 +1295,33 @@ function BackupRestore() {
       return;
     }
 
-    if (!confirm('Are you sure you want to restore this backup? This will overwrite all current data!')) {
+    if (!confirm('⚠️ WARNING: This will DELETE all current data and replace it with the backup data.\n\nAre you absolutely sure you want to proceed?')) {
+      return;
+    }
+
+    // Second confirmation
+    if (!confirm('Final confirmation: Type OK in the next prompt to proceed with restore.')) {
       return;
     }
 
     setIsRestoring(true);
     try {
       await backupApi.restore(backupData.data);
-      alert('Data restored successfully! Please refresh the page.');
+      alert('✅ Data restored successfully! The page will now refresh.');
       setBackupData(null);
+      setBackupPreview(null);
+      window.location.reload();
     } catch (error) {
       console.error('Error restoring backup:', error);
-      alert('Failed to restore backup');
+      alert('❌ Failed to restore backup. Check console for details.');
     } finally {
       setIsRestoring(false);
     }
+  };
+
+  const clearBackup = () => {
+    setBackupData(null);
+    setBackupPreview(null);
   };
 
   return (
@@ -1313,75 +1332,117 @@ function BackupRestore() {
       <div className="bg-white rounded-xl border border-gray-200 p-8">
         <div className="flex items-start gap-4">
           <div className="flex-1">
-            <h3 className="font-bold text-gray-900 mb-2">Create Backup</h3>
+            <h3 className="font-bold text-gray-900 mb-2">📥 Create Backup</h3>
             <p className="text-sm text-gray-600 mb-4">
-              Download a complete backup of all system data including bookings, trips, users, depots, and settings.
+              Download a complete backup of all system data including bookings, trips, receivers, packages, users, depots, contacts, credit data, and settings.
             </p>
             <button
               onClick={handleCreateBackup}
               disabled={isCreatingBackup}
               className="px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors font-medium disabled:opacity-50"
             >
-              {isCreatingBackup ? 'Creating Backup...' : 'Download Backup'}
+              {isCreatingBackup ? '⏳ Creating Backup...' : '💾 Download Backup'}
             </button>
           </div>
-          <div className="text-6xl">💾</div>
         </div>
       </div>
 
       {/* Restore Backup */}
       <div className="bg-white rounded-xl border border-gray-200 p-8">
-        <div className="flex items-start gap-4">
-          <div className="flex-1">
-            <h3 className="font-bold text-gray-900 mb-2">Restore Backup</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Upload a backup file to restore all data. This will overwrite all current data.
-            </p>
+        <div className="flex-1">
+          <h3 className="font-bold text-gray-900 mb-2">📤 Restore Backup</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Upload a backup file to restore all data. <strong className="text-red-600">This will delete all current data!</strong>
+          </p>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block">
-                  <span className="sr-only">Choose backup file</span>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleFileUpload}
-                    className="block w-full text-sm text-gray-500
-                      file:mr-4 file:py-2 file:px-4
-                      file:rounded-lg file:border-0
-                      file:bg-orange-50 file:text-orange-700
-                      hover:file:bg-orange-100
-                      file:cursor-pointer cursor-pointer"
-                  />
-                </label>
-              </div>
-
-              {backupData && (
-                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <p className="text-sm text-green-800">
-                    <strong>Backup loaded:</strong> Created on {new Date(backupData.timestamp).toLocaleString('en-IN')}
-                  </p>
-                </div>
-              )}
-
-              <button
-                onClick={handleRestore}
-                disabled={isRestoring || !backupData}
-                className="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-medium disabled:opacity-50"
-              >
-                {isRestoring ? 'Restoring...' : 'Restore Backup'}
-              </button>
+          <div className="space-y-4">
+            <div>
+              <label className="block">
+                <span className="sr-only">Choose backup file</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleFileUpload}
+                  className="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-lg file:border-0
+                    file:bg-orange-50 file:text-orange-700
+                    hover:file:bg-orange-100
+                    file:cursor-pointer cursor-pointer"
+                />
+              </label>
             </div>
+
+            {/* Backup Preview */}
+            {backupPreview && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="font-medium text-blue-900">📋 Backup Preview</p>
+                    <p className="text-xs text-blue-700">
+                      Version: {backupPreview.version} • Created: {new Date(backupPreview.timestamp).toLocaleString('en-IN')}
+                    </p>
+                  </div>
+                  <button
+                    onClick={clearBackup}
+                    className="text-blue-600 hover:text-blue-800 text-sm"
+                  >
+                    ✕ Clear
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div className="bg-white rounded p-2">
+                    <span className="text-gray-500">Bookings:</span>
+                    <span className="font-bold text-gray-900 ml-1">{backupPreview.counts.bookings}</span>
+                  </div>
+                  <div className="bg-white rounded p-2">
+                    <span className="text-gray-500">Trips:</span>
+                    <span className="font-bold text-gray-900 ml-1">{backupPreview.counts.trips}</span>
+                  </div>
+                  <div className="bg-white rounded p-2">
+                    <span className="text-gray-500">Receivers:</span>
+                    <span className="font-bold text-gray-900 ml-1">{backupPreview.counts.receivers}</span>
+                  </div>
+                  <div className="bg-white rounded p-2">
+                    <span className="text-gray-500">Packages:</span>
+                    <span className="font-bold text-gray-900 ml-1">{backupPreview.counts.packages}</span>
+                  </div>
+                  <div className="bg-white rounded p-2">
+                    <span className="text-gray-500">Contacts:</span>
+                    <span className="font-bold text-gray-900 ml-1">{backupPreview.counts.contacts}</span>
+                  </div>
+                  <div className="bg-white rounded p-2">
+                    <span className="text-gray-500">Credit Customers:</span>
+                    <span className="font-bold text-gray-900 ml-1">{backupPreview.counts.credit_customers}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleRestore}
+              disabled={isRestoring || !backupData}
+              className="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-medium disabled:opacity-50"
+            >
+              {isRestoring ? '⏳ Restoring...' : '⚠️ Restore Backup'}
+            </button>
           </div>
-          <div className="text-6xl">⚠️</div>
         </div>
       </div>
 
       {/* Warning */}
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
         <p className="text-sm text-red-800">
-          <strong>⚠️ Warning:</strong> Restoring a backup will permanently overwrite all current data.
-          Make sure to create a backup of your current data before restoring.
+          <strong>⚠️ Critical Warning:</strong> Restoring a backup will <strong>permanently delete</strong> all current bookings, trips, receivers, and packages, replacing them with data from the backup file.
+          Always create a fresh backup before restoring!
+        </p>
+      </div>
+
+      {/* Info */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <p className="text-sm text-gray-700">
+          <strong>ℹ️ Note:</strong> Depots, Package Sizes, and User accounts are not overwritten during restore to preserve your system configuration.
         </p>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { tripsApi, bookingsApi, depotsApi } from '../utils/api';
-import { jsPDF } from 'jspdf';
+// jsPDF is dynamically imported when needed to reduce bundle size
 import { useSyncStore, useOnlineStore } from '../stores';
 import { queueOperation } from '../utils/syncEngine';
 import { isNetworkError } from '../utils/networkErrors';
@@ -233,7 +233,9 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
   };
 
   // Download Driver's Memo PDF
-  const downloadDriverMemo = (trip: Trip) => {
+  const downloadDriverMemo = async (trip: Trip) => {
+    // Dynamically import jsPDF to reduce bundle size
+    const { jsPDF } = await import('jspdf');
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     let y = 15;
@@ -260,7 +262,7 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
     doc.text(`Vehicle: ${trip.vehicle_number}`, 14, y); y += 5;
     doc.text(`Date: ${new Date().toLocaleDateString('en-IN')}`, 14, y); y += 10;
 
-    // Get in_transit bookings sorted by destination depot order number
+    // Get bookings for THIS trip, sorted by destination depot order number
     // Create depot order map: depot name -> order number (index + 1)
     const depotOrderMap: Record<string, number> = {};
     depots.forEach((depot, index) => {
@@ -268,7 +270,7 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
     });
 
     const tripBookings = bookings
-      .filter(b => b.status === 'in_transit')
+      .filter(b => b.trip_id === trip.id)
       .sort((a, b) => {
         const orderA = depotOrderMap[a.destination_depot_name] || 999;
         const orderB = depotOrderMap[b.destination_depot_name] || 999;
@@ -650,10 +652,10 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-lg font-bold text-green-600">₹{(Number(booking.total_amount) || 0).toLocaleString('en-IN')}</span>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${booking.payment_method === 'cash' ? 'bg-green-100 text-green-700' :
-                      booking.payment_method === 'online' ? 'bg-purple-100 text-purple-700' :
-                        booking.payment_method === 'credit' ? 'bg-yellow-100 text-yellow-700' :
-                          booking.payment_method === 'to_pay' ? 'bg-orange-100 text-orange-700' :
-                            'bg-gray-100 text-gray-700'
+                    booking.payment_method === 'online' ? 'bg-purple-100 text-purple-700' :
+                      booking.payment_method === 'credit' ? 'bg-yellow-100 text-yellow-700' :
+                        booking.payment_method === 'to_pay' ? 'bg-orange-100 text-orange-700' :
+                          'bg-gray-100 text-gray-700'
                     }`}>
                     {booking.payment_method === 'cash' ? 'Cash' :
                       booking.payment_method === 'online' ? 'Online' :
@@ -689,8 +691,8 @@ export default function TripsDeliveries({ userRole, assignedDepotId }: TripsDeli
                       onClick={() => handleMarkDelivered(booking.id, toPayCollectionMethods[booking.id])}
                       disabled={!toPayCollectionMethods[booking.id]}
                       className={`w-full py-3 rounded-lg font-medium text-center ${toPayCollectionMethods[booking.id]
-                          ? 'bg-green-500 text-white hover:bg-green-600'
-                          : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        ? 'bg-green-500 text-white hover:bg-green-600'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         }`}
                     >
                       {!isOnline ? '📤 Mark Delivered (Offline)' : '✓ Mark Delivered'}

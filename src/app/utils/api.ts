@@ -37,26 +37,30 @@ export const authApi = {
   },
 
   async signIn(email: string, password: string) {
-    // Try authenticating with Supabase Auth first
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    // Try authenticating with Supabase Auth first (silently)
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (!error && data.session) {
-      // Fetch user profile to get role and assigned depot
-      const profile = await this.getUserProfile(email);
-      return {
-        ...data,
-        user: {
-          ...data.user,
-          role: profile?.role || 'owner',
-          assigned_depot_id: profile?.assigned_depot_id || null
-        }
-      };
+      if (!error && data.session) {
+        // Fetch user profile to get role and assigned depot
+        const profile = await this.getUserProfile(email);
+        return {
+          ...data,
+          user: {
+            ...data.user,
+            role: profile?.role || 'owner',
+            assigned_depot_id: profile?.assigned_depot_id || null
+          }
+        };
+      }
+    } catch (authError) {
+      // Silently ignore Supabase Auth errors - will fall back to profiles table
     }
 
-    // Fallback: Check manual profiles table
+    // Fallback: Check manual profiles table (for users created without Supabase Auth)
     const { data: profiles, error: profileError } = await supabase
       .from('profiles')
       .select('*')
@@ -1206,10 +1210,192 @@ export const creditApi = {
 };
 
 
-// Backup
+// Backup & Restore API
 export const backupApi = {
-  async create() { alert("Database usage active. Contact admin for SQL Dumps."); },
-  async restore() { alert("Database usage active. Contact admin for SQL Restores."); }
+  // Create a full backup of all data
+  async create() {
+    try {
+      // Fetch all tables in parallel
+      const [
+        bookingsRes,
+        receiversRes,
+        packagesRes,
+        tripsRes,
+        depotsRes,
+        depotRoutesRes,
+        depotPricesRes,
+        usersRes,
+        seasonRes,
+        contactsRes,
+        creditPaymentsRes,
+        creditCustomersRes,
+        creditPricingRes,
+        packageSizesRes
+      ] = await Promise.all([
+        supabase.from('bookings').select('*'),
+        supabase.from('receivers').select('*'),
+        supabase.from('packages').select('*'),
+        supabase.from('trips').select('*'),
+        supabase.from('depots').select('*'),
+        supabase.from('depot_routes').select('*'),
+        supabase.from('depot_package_prices').select('*'),
+        supabase.from('users').select('id, email, role, name, assigned_depot_id, created_at'),
+        supabase.from('season_settings').select('*'),
+        supabase.from('contacts').select('*'),
+        supabase.from('credit_payments').select('*'),
+        supabase.from('credit_customers').select('*'),
+        supabase.from('credit_customer_pricing').select('*'),
+        supabase.from('package_sizes').select('*')
+      ]);
+
+      // Also fetch the receipt counter
+      const { data: counterData } = await supabase.from('receipt_counter').select('*');
+
+      const backup = {
+        version: '1.0',
+        timestamp: new Date().toISOString(),
+        data: {
+          bookings: bookingsRes.data || [],
+          receivers: receiversRes.data || [],
+          packages: packagesRes.data || [],
+          trips: tripsRes.data || [],
+          depots: depotsRes.data || [],
+          depot_routes: depotRoutesRes.data || [],
+          depot_package_prices: depotPricesRes.data || [],
+          users: usersRes.data || [],
+          season_settings: seasonRes.data || [],
+          contacts: contactsRes.data || [],
+          credit_payments: creditPaymentsRes.data || [],
+          credit_customers: creditCustomersRes.data || [],
+          credit_customer_pricing: creditPricingRes.data || [],
+          package_sizes: packageSizesRes.data || [],
+          receipt_counter: counterData || []
+        }
+      };
+
+      return { backup };
+    } catch (error) {
+      console.error('Backup creation failed:', error);
+      throw error;
+    }
+  },
+
+  // Restore data from a backup
+  async restore(data: any) {
+    if (!data) {
+      throw new Error('No backup data provided');
+    }
+
+    try {
+      // Delete existing data in reverse dependency order
+      // (children first, then parents)
+      await supabase.from('packages').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('receivers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('bookings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('trips').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('depot_routes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('depot_package_prices').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('contacts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('credit_payments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('credit_customers').delete().neq('phone', '');
+      await supabase.from('credit_customer_pricing').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('season_settings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('receipt_counter').delete().neq('id', 0);
+
+      // Note: We don't delete depots, package_sizes, or users as these are configuration
+      // that should be managed separately. If you need to restore these, uncomment below:
+      // await supabase.from('depots').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      // await supabase.from('package_sizes').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // Insert data in dependency order (parents first, then children)
+      // Season settings
+      if (data.season_settings?.length > 0) {
+        await supabase.from('season_settings').insert(data.season_settings);
+      }
+
+      // Receipt counter
+      if (data.receipt_counter?.length > 0) {
+        await supabase.from('receipt_counter').insert(data.receipt_counter);
+      }
+
+      // Contacts
+      if (data.contacts?.length > 0) {
+        await supabase.from('contacts').insert(data.contacts);
+      }
+
+      // Credit customers
+      if (data.credit_customers?.length > 0) {
+        await supabase.from('credit_customers').insert(data.credit_customers);
+      }
+
+      // Credit customer pricing
+      if (data.credit_customer_pricing?.length > 0) {
+        await supabase.from('credit_customer_pricing').insert(data.credit_customer_pricing);
+      }
+
+      // Credit payments
+      if (data.credit_payments?.length > 0) {
+        await supabase.from('credit_payments').insert(data.credit_payments);
+      }
+
+      // Depot routes
+      if (data.depot_routes?.length > 0) {
+        await supabase.from('depot_routes').insert(data.depot_routes);
+      }
+
+      // Depot package prices
+      if (data.depot_package_prices?.length > 0) {
+        await supabase.from('depot_package_prices').insert(data.depot_package_prices);
+      }
+
+      // Trips (before bookings since bookings reference trips)
+      if (data.trips?.length > 0) {
+        await supabase.from('trips').insert(data.trips);
+      }
+
+      // Bookings
+      if (data.bookings?.length > 0) {
+        await supabase.from('bookings').insert(data.bookings);
+      }
+
+      // Receivers (after bookings)
+      if (data.receivers?.length > 0) {
+        await supabase.from('receivers').insert(data.receivers);
+      }
+
+      // Packages (after receivers)
+      if (data.packages?.length > 0) {
+        await supabase.from('packages').insert(data.packages);
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Restore failed:', error);
+      throw error;
+    }
+  },
+
+  // Get a preview of the backup data (counts)
+  getPreview(backup: any) {
+    if (!backup?.data) return null;
+
+    const data = backup.data;
+    return {
+      version: backup.version,
+      timestamp: backup.timestamp,
+      counts: {
+        bookings: data.bookings?.length || 0,
+        receivers: data.receivers?.length || 0,
+        packages: data.packages?.length || 0,
+        trips: data.trips?.length || 0,
+        depots: data.depots?.length || 0,
+        users: data.users?.length || 0,
+        contacts: data.contacts?.length || 0,
+        credit_payments: data.credit_payments?.length || 0,
+        credit_customers: data.credit_customers?.length || 0
+      }
+    };
+  }
 };
 
 // Contacts API for autocomplete
