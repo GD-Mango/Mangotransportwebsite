@@ -57,11 +57,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               </label>
               <input
                 id="email"
+                name="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 placeholder="Enter your email"
+                autoComplete="email"
                 required
               />
             </div>
@@ -72,11 +74,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               </label>
               <input
                 id="password"
+                name="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 placeholder="Enter your password"
+                autoComplete="current-password"
                 required
               />
             </div>

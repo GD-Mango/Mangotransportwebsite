@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import { contactsApi } from '../utils/api';
 
 interface Contact {
@@ -33,6 +33,8 @@ export default function ContactAutocomplete({
     phonePlaceholder = '10-digit number',
     required = false
 }: ContactAutocompleteProps) {
+    const nameId = useId();
+    const phoneId = useId();
     const [suggestions, setSuggestions] = useState<Contact[]>([]);
     const [showDropdown, setShowDropdown] = useState(false);
     const [activeField, setActiveField] = useState<'name' | 'phone' | null>(null);
@@ -86,10 +88,12 @@ export default function ContactAutocomplete({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Name Field */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor={nameId} className="block text-sm font-medium text-gray-700 mb-2">
                         {nameLabel} {required && '*'}
                     </label>
                     <input
+                        id={nameId}
+                        name="contact-name"
                         type="text"
                         value={nameValue}
                         onChange={(e) => onNameChange(e.target.value)}
@@ -103,10 +107,12 @@ export default function ContactAutocomplete({
 
                 {/* Phone Field */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor={phoneId} className="block text-sm font-medium text-gray-700 mb-2">
                         {phoneLabel} {required && '*'}
                     </label>
                     <input
+                        id={phoneId}
+                        name="contact-phone"
                         type="tel"
                         value={phoneValue}
                         onChange={(e) => onPhoneChange(e.target.value)}

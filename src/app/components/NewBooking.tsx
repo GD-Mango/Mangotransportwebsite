@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useId } from 'react';
 // jsPDF is dynamically imported when needed to reduce initial bundle size
 import { depotsApi, packagesApi, depotPricingApi, bookingsApi, seasonApi, contactsApi, receiptsApi } from '../utils/api';
 import ContactAutocomplete from './ContactAutocomplete';
@@ -517,6 +517,11 @@ export default function NewBooking({ onNavigate }: NewBookingProps) {
 // STEP 1: Depot, Payment & Delivery
 // ============================================================================
 function Step1DepotPaymentDelivery({ formData, setFormData, depots, onNext }: any) {
+  const originDepotId = useId();
+  const destinationDepotId = useId();
+  const deliveryChargeId = useId();
+  const instructionsId = useId();
+
   // Origin depots: only show depots with type "origin"
   const originDepots = depots.filter((d: any) => d.type === 'origin');
 
@@ -544,8 +549,10 @@ function Step1DepotPaymentDelivery({ formData, setFormData, depots, onNext }: an
       {/* Depot Selection */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Origin Depot *</label>
+          <label htmlFor={originDepotId} className="block text-sm font-medium text-gray-700 mb-2">Origin Depot *</label>
           <select
+            id={originDepotId}
+            name="origin-depot"
             value={formData.originDepotId}
             onChange={(e) => setFormData({ ...formData, originDepotId: e.target.value, destinationDepotId: '' })}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
@@ -557,8 +564,10 @@ function Step1DepotPaymentDelivery({ formData, setFormData, depots, onNext }: an
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Destination Depot *</label>
+          <label htmlFor={destinationDepotId} className="block text-sm font-medium text-gray-700 mb-2">Destination Depot *</label>
           <select
+            id={destinationDepotId}
+            name="destination-depot"
             value={formData.destinationDepotId}
             onChange={(e) => setFormData({ ...formData, destinationDepotId: e.target.value })}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
@@ -626,8 +635,10 @@ function Step1DepotPaymentDelivery({ formData, setFormData, depots, onNext }: an
       {/* Delivery Charge (if home delivery) */}
       {formData.deliveryType !== 'pickup' && (
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Delivery Charge (₹)</label>
+          <label htmlFor={deliveryChargeId} className="block text-sm font-medium text-gray-700 mb-2">Delivery Charge (₹)</label>
           <input
+            id={deliveryChargeId}
+            name="delivery-charge"
             type="number"
             min="0"
             value={formData.deliveryCharge}
@@ -640,8 +651,10 @@ function Step1DepotPaymentDelivery({ formData, setFormData, depots, onNext }: an
 
       {/* Custom Instructions */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Special Instructions (Optional)</label>
+        <label htmlFor={instructionsId} className="block text-sm font-medium text-gray-700 mb-2">Special Instructions (Optional)</label>
         <textarea
+          id={instructionsId}
+          name="special-instructions"
           value={formData.customInstructions}
           onChange={(e) => setFormData({ ...formData, customInstructions: e.target.value })}
           className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
@@ -882,6 +895,7 @@ function Step3ReceiversPackages({ formData, setFormData, packages, pricing, onNe
                       <input
                         type="number"
                         min="0"
+                        name={`package-qty-${receiverIndex}-${pkg.id}`}
                         value={quantity > 0 ? quantity : ''}
                         placeholder="0"
                         onChange={(e) => updateReceiverPackage(receiverIndex, pkg.id, Number(e.target.value) || 0)}
@@ -899,6 +913,7 @@ function Step3ReceiversPackages({ formData, setFormData, packages, pricing, onNe
                       <div className="mt-2">
                         <input
                           type="text"
+                          name={`package-desc-${receiverIndex}-${pkg.id}`}
                           value={description}
                           onChange={(e) => updateReceiverPackageDescription(receiverIndex, pkg.id, e.target.value)}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 text-sm"
