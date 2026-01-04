@@ -1765,6 +1765,93 @@ export const reportsApi = {
       .slice(0, limit);
 
     return { routes: topRoutes };
+  },
+
+  // Get package collection report by origin depot
+  async getOriginDepotReport(fromDate?: string, toDate?: string) {
+    let query = supabase
+      .from('bookings_complete')
+      .select('*');
+
+    if (fromDate) {
+      query = query.gte('created_at', fromDate);
+    }
+    if (toDate) {
+      query = query.lte('created_at', toDate + 'T23:59:59');
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const bookings = data || [];
+
+    // Aggregate by origin depot
+    const depotMap = new Map<string, {
+      depotId: string;
+      depotName: string;
+      totalPackages: number;
+      totalRevenue: number;
+      sizeBreakdown: Map<string, number>;
+    }>();
+
+    bookings.forEach((b: any) => {
+      const depotId = b.origin_depot_id || 'unknown';
+      const depotName = b.origin_depot_name || 'Unknown Depot';
+
+      if (!depotMap.has(depotId)) {
+        depotMap.set(depotId, {
+          depotId,
+          depotName,
+          totalPackages: 0,
+          totalRevenue: 0,
+          sizeBreakdown: new Map()
+        });
+      }
+
+      const depot = depotMap.get(depotId)!;
+      depot.totalRevenue += Number(b.total_amount) || 0;
+
+      // Process package details for count and size breakdown
+      if (Array.isArray(b.package_details)) {
+        b.package_details.forEach((pkg: any) => {
+          const qty = Number(pkg.quantity) || 0;
+          const size = pkg.size || pkg.name || 'Unknown';
+
+          depot.totalPackages += qty;
+
+          const currentCount = depot.sizeBreakdown.get(size) || 0;
+          depot.sizeBreakdown.set(size, currentCount + qty);
+        });
+      }
+    });
+
+    // Convert to array and sort by total packages desc
+    const depotReports = Array.from(depotMap.values())
+      .map(d => ({
+        depotId: d.depotId,
+        depotName: d.depotName,
+        totalPackages: d.totalPackages,
+        totalRevenue: d.totalRevenue,
+        sizeBreakdown: Object.fromEntries(d.sizeBreakdown)
+      }))
+      .sort((a, b) => b.totalPackages - a.totalPackages);
+
+    // Calculate totals
+    const grandTotalPackages = depotReports.reduce((sum, d) => sum + d.totalPackages, 0);
+    const grandTotalRevenue = depotReports.reduce((sum, d) => sum + d.totalRevenue, 0);
+
+    // Get all unique package sizes
+    const allSizes = new Set<string>();
+    depotReports.forEach(d => {
+      Object.keys(d.sizeBreakdown).forEach(size => allSizes.add(size));
+    });
+
+    return {
+      depots: depotReports,
+      grandTotalPackages,
+      grandTotalRevenue,
+      allSizes: Array.from(allSizes).sort()
+    };
   }
 };
 
