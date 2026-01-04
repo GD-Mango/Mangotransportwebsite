@@ -1,7 +1,7 @@
 {
-  "name": "Mango Express",
-  "short_name": "Mango Express",
-  "description": "DRT Mango Transport Management System",
+  "name": "Dirba Amba",
+  "short_name": "Dirba Amba",
+  "description": "Dirba Amba Transport Management System",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f9fafb",
@@ -9,13 +9,13 @@
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icons/android-chrome-192x192.png",
+      "src": "/icons/web-app-manifest-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icons/android-chrome-512x512.png",
+      "src": "/icons/web-app-manifest-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
@@ -34,7 +34,7 @@
       "url": "/?page=new_booking",
       "icons": [
         {
-          "src": "/icons/android-chrome-192x192.png",
+          "src": "/icons/web-app-manifest-192x192.png",
           "sizes": "192x192"
         }
       ]

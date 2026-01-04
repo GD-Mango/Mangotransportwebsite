@@ -121,9 +121,7 @@ export default function App() {
           </svg>
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center overflow-hidden">
-            <img src="/Logo.svg" alt="Logo" className="w-full h-full object-contain p-0.5" />
-          </div>
+          <img src="/Logo.svg" alt="Logo" className="w-10 h-10 object-contain" />
           <span className="font-bold text-gray-900">Dirba Amba Service</span>
         </div>
         <div className="w-10" /> {/* Spacer for centering */}
@@ -160,9 +158,7 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-2 mb-8">
-              <div className="w-10 h-10 bg-orange-500 rounded-lg flex items-center justify-center overflow-hidden">
-                <img src="/Logo.svg" alt="Dirba Amba Service Logo" className="w-full h-full object-contain p-1" />
-              </div>
+              <img src="/Logo.svg" alt="Dirba Amba Service Logo" className="w-12 h-12 object-contain" />
               <div>
                 <h1 className="font-bold text-gray-900">Dirba Amba Service</h1>
                 <p className="text-sm text-gray-500 capitalize">{userRole?.replace('_', ' ')}</p>
