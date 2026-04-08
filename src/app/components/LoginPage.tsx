@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { authApi } from '../utils/api';
+import { cacheCredentials, verifyOfflineCredentials, hasCachedCredentials } from '../utils/offlineAuthCache';
 
 // User role type - must match the type in App.tsx
 type UserRole = 'owner' | 'booking_clerk' | 'depot_manager';
@@ -13,6 +14,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isOfflineLogin, setIsOfflineLogin] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,22 +22,52 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
     setIsLoading(true);
     setError('');
+    setIsOfflineLogin(false);
 
-    try {
-      // Authenticate and get user role and depot from database
-      const response = await authApi.signIn(email, password);
+    const isOnline = navigator.onLine;
 
-      // Get user role, ID, and assigned depot ID from the response
-      const userRole = (response.user?.role || 'owner') as UserRole;
-      const userId = response.user?.id || '';
-      const depotId = (response.user as any)?.assigned_depot_id || null;
+    if (isOnline) {
+      // ── ONLINE LOGIN ──
+      try {
+        // Authenticate and get user role and depot from database
+        const response = await authApi.signIn(email, password);
 
-      console.log('Login successful:', { userRole, userId, depotId }); // Debug log
-      onLogin(userRole, userId, depotId);
-    } catch (err: any) {
-      console.error('Login error:', err);
-      setError(err.message || 'Invalid email or password. Please try again.');
-    } finally {
+        // Get user role, ID, and assigned depot ID from the response
+        const userRole = (response.user?.role || 'owner') as UserRole;
+        const userId = response.user?.id || '';
+        const depotId = (response.user as any)?.assigned_depot_id || null;
+
+        console.log('Login successful:', { userRole, userId, depotId }); // Debug log
+
+        // Cache credentials for future offline login
+        await cacheCredentials(email, password, userRole, userId, depotId);
+
+        onLogin(userRole, userId, depotId);
+      } catch (err: any) {
+        console.error('Login error:', err);
+        setError(err.message || 'Invalid email or password. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      // ── OFFLINE LOGIN ──
+      setIsOfflineLogin(true);
+
+      if (!hasCachedCredentials()) {
+        setError('You must be online for your first login. No saved credentials found.');
+        setIsLoading(false);
+        return;
+      }
+
+      const cachedUser = await verifyOfflineCredentials(email, password);
+
+      if (cachedUser) {
+        console.log('Offline login successful:', cachedUser);
+        onLogin(cachedUser.role as UserRole, cachedUser.userId, cachedUser.depotId);
+      } else {
+        setError('Invalid credentials. Make sure you have logged in online at least once with this account.');
+      }
+
       setIsLoading(false);
     }
   };
@@ -49,6 +81,21 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Dirba Amba Service</h1>
             <p className="text-gray-600">Seasonal Transport Management</p>
           </div>
+
+          {/* Offline Banner */}
+          {!navigator.onLine && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+              <span className="text-lg">📡</span>
+              <div>
+                <p className="text-sm font-medium text-amber-800">You're offline</p>
+                <p className="text-xs text-amber-600">
+                  {hasCachedCredentials()
+                    ? 'You can log in with previously saved credentials.'
+                    : 'You must be online for your first login.'}
+                </p>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
@@ -90,7 +137,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               className="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition-colors font-medium"
               disabled={isLoading}
             >
-              {isLoading ? 'Logging in...' : 'Login'}
+              {isLoading
+                ? (isOfflineLogin ? 'Logging in offline...' : 'Logging in...')
+                : 'Login'}
             </button>
           </form>
 

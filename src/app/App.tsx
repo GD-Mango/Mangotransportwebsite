@@ -1,5 +1,6 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { depotsApi } from './utils/api';
+import { useOnlineStore } from './stores';
 
 // Lazy load all page components for code splitting
 // This significantly reduces the initial bundle size
@@ -22,6 +23,9 @@ import { startSyncEngine, stopSyncEngine } from './utils/syncEngine';
 // User role type
 type UserRole = 'owner' | 'booking_clerk' | 'depot_manager';
 
+// Pages allowed when offline (only booking)
+const OFFLINE_ALLOWED_PAGES = ['dashboard', 'new_booking'];
+
 // Loading fallback component
 function PageLoader() {
   return (
@@ -43,6 +47,8 @@ export default function App() {
   const [depotInfo, setDepotInfo] = useState<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const isOnline = useOnlineStore((state) => state.isOnline);
+
   // Initialize sync engine on mount
   useEffect(() => {
     startSyncEngine();
@@ -51,8 +57,19 @@ export default function App() {
     };
   }, []);
 
+  // When going offline, redirect to an allowed page if current page is not allowed
+  useEffect(() => {
+    if (!isOnline && !OFFLINE_ALLOWED_PAGES.includes(currentPage)) {
+      setCurrentPage('new_booking');
+    }
+  }, [isOnline, currentPage]);
+
   // Close sidebar on page change (for mobile)
   const handlePageChange = (page: string) => {
+    // Block navigation to non-allowed pages when offline
+    if (!isOnline && !OFFLINE_ALLOWED_PAGES.includes(page)) {
+      return;
+    }
     setCurrentPage(page);
     setSidebarOpen(false); // Auto-close sidebar on navigation
   };
@@ -73,14 +90,21 @@ export default function App() {
         console.log('Depot info fetched:', info); // Debug log
         setDepotInfo(info);
       } catch (error) {
-        console.error('Error fetching depot info:', error);
+        // Gracefully handle offline/network errors — depot info is non-critical
+        console.error('Error fetching depot info (may be offline):', error);
         setDepotInfo(null);
       }
     } else {
       // Reset depot info for non-depot_manager roles to prevent stale state
       setDepotInfo(null);
     }
-    setCurrentPage('dashboard');
+
+    // If offline, go directly to New Booking (only allowed page)
+    if (!navigator.onLine && (role === 'owner' || role === 'booking_clerk')) {
+      setCurrentPage('new_booking');
+    } else {
+      setCurrentPage('dashboard');
+    }
   };
 
   const handleLogout = () => {
@@ -101,6 +125,11 @@ export default function App() {
       </Suspense>
     );
   }
+
+  /**
+   * Helper: check if a nav item is disabled (offline + not an allowed page).
+   */
+  const isNavDisabled = (page: string) => !isOnline && !OFFLINE_ALLOWED_PAGES.includes(page);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -172,6 +201,7 @@ export default function App() {
                 label="Dashboard"
                 active={currentPage === 'dashboard'}
                 onClick={() => handlePageChange('dashboard')}
+                disabled={false}
               />
 
               {/* Booking Clerk & Admin have access */}
@@ -181,6 +211,7 @@ export default function App() {
                   label="New Booking"
                   active={currentPage === 'new_booking'}
                   onClick={() => handlePageChange('new_booking')}
+                  disabled={false}
                 />
               )}
 
@@ -192,6 +223,7 @@ export default function App() {
                     label={depotInfo?.forwarding_enabled ? 'Create Forwarding Trip' : 'Create Trip'}
                     active={currentPage === 'trip_creation'}
                     onClick={() => handlePageChange('trip_creation')}
+                    disabled={isNavDisabled('trip_creation')}
                   />
                 )}
 
@@ -201,6 +233,7 @@ export default function App() {
                 label="Trips & Deliveries"
                 active={currentPage === 'trips_deliveries'}
                 onClick={() => handlePageChange('trips_deliveries')}
+                disabled={isNavDisabled('trips_deliveries')}
               />
 
               {/* Only Admin & Depot Manager (financial access) */}
@@ -210,6 +243,7 @@ export default function App() {
                   label="Reports"
                   active={currentPage === 'reports'}
                   onClick={() => handlePageChange('reports')}
+                  disabled={isNavDisabled('reports')}
                 />
               )}
 
@@ -220,6 +254,7 @@ export default function App() {
                   label="All Receipts"
                   active={currentPage === 'receipts'}
                   onClick={() => handlePageChange('receipts')}
+                  disabled={isNavDisabled('receipts')}
                 />
               )}
 
@@ -230,6 +265,7 @@ export default function App() {
                   label="Credit Ledger"
                   active={currentPage === 'credit_ledger'}
                   onClick={() => handlePageChange('credit_ledger')}
+                  disabled={isNavDisabled('credit_ledger')}
                 />
               )}
 
@@ -240,6 +276,7 @@ export default function App() {
                   label="Settings"
                   active={currentPage === 'settings'}
                   onClick={() => handlePageChange('settings')}
+                  disabled={isNavDisabled('settings')}
                 />
               )}
             </nav>
@@ -278,19 +315,28 @@ interface NavItemProps {
   label: string;
   active: boolean;
   onClick: () => void;
+  disabled?: boolean;
 }
 
-function NavItem({ icon, label, active, onClick }: NavItemProps) {
+function NavItem({ icon, label, active, onClick, disabled = false }: NavItemProps) {
   return (
     <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors touch-target ${active
-        ? 'bg-orange-50 text-orange-600'
-        : 'text-gray-600 hover:bg-gray-50'
-        }`}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors touch-target ${
+        disabled
+          ? 'text-gray-300 cursor-not-allowed'
+          : active
+            ? 'bg-orange-50 text-orange-600'
+            : 'text-gray-600 hover:bg-gray-50'
+      }`}
+      title={disabled ? 'Not available offline' : undefined}
     >
-      <span>{icon}</span>
+      <span className={disabled ? 'opacity-40' : ''}>{icon}</span>
       <span className="font-medium">{label}</span>
+      {disabled && (
+        <span className="ml-auto text-xs text-gray-300">🔒</span>
+      )}
     </button>
   );
 }

@@ -4,6 +4,8 @@ import { depotsApi, packagesApi, depotPricingApi, bookingsApi, seasonApi, contac
 import ContactAutocomplete from './ContactAutocomplete';
 import { useBookingStore, useSyncStore, useOnlineStore } from '../stores';
 import { queueOperation, processQueue } from '../utils/syncEngine';
+import { cacheReferenceData, getCachedDepots, getCachedPackages, getCachedPricing, getCachedSeason, hasCachedData } from '../utils/offlineDataCache';
+import OfflineBookings from './OfflineBookings';
 
 // Types
 interface ReceiverPackage {
@@ -99,34 +101,78 @@ export default function NewBooking({ onNavigate }: NewBookingProps) {
   }, []);
 
   const loadInitialData = async () => {
-    try {
-      const [depotsRes, packagesRes, pricingRes, seasonRes] = await Promise.all([
-        depotsApi.getAll(),
-        packagesApi.getAll(),
-        depotPricingApi.getAll(),
-        seasonApi.get()
-      ]);
-      const loadedDepots = depotsRes.depots || [];
-      setDepots(loadedDepots);
-      setPackages(packagesRes.packages || []);
-      setPricing(pricingRes.pricing || []);
+    if (isOnline) {
+      // ── ONLINE: fetch from API and cache for offline use ──
+      try {
+        const [depotsRes, packagesRes, pricingRes, seasonRes] = await Promise.all([
+          depotsApi.getAll(),
+          packagesApi.getAll(),
+          depotPricingApi.getAll(),
+          seasonApi.get()
+        ]);
+        const loadedDepots = depotsRes.depots || [];
+        const loadedPackages = packagesRes.packages || [];
+        const loadedPricing = pricingRes.pricing || [];
+        const loadedSeason = seasonRes.season || null;
 
-      // Set Devgad as default origin depot (most frequently used)
-      const devgadDepot = loadedDepots.find((d: any) => d.name?.toLowerCase() === 'devgad' && d.type === 'origin');
-      if (devgadDepot) {
-        setFormData(prev => ({ ...prev, originDepotId: devgadDepot.id }));
+        setDepots(loadedDepots);
+        setPackages(loadedPackages);
+        setPricing(loadedPricing);
+
+        // Cache reference data for offline use
+        cacheReferenceData(loadedDepots, loadedPackages, loadedPricing, loadedSeason);
+
+        // Set Devgad as default origin depot (most frequently used)
+        const devgadDepot = loadedDepots.find((d: any) => d.name?.toLowerCase() === 'devgad' && d.type === 'origin');
+        if (devgadDepot) {
+          setFormData(prev => ({ ...prev, originDepotId: devgadDepot.id }));
+        }
+        if (loadedSeason) {
+          setSeason(loadedSeason);
+          const today = new Date();
+          const startDate = new Date(loadedSeason.startDate);
+          const endDate = new Date(loadedSeason.endDate);
+          const isActive = today >= startDate && today <= endDate;
+          setIsSeasonActive(isActive);
+        }
+      } catch (error) {
+        console.error('Error loading data online, falling back to cache:', error);
+        // If online fetch fails (e.g. network glitch), try cache
+        loadFromCache();
       }
-      if (seasonRes.season) {
-        setSeason(seasonRes.season);
-        // Calculate is_active based on current date
-        const today = new Date();
-        const startDate = new Date(seasonRes.season.startDate);
-        const endDate = new Date(seasonRes.season.endDate);
-        const isActive = today >= startDate && today <= endDate;
-        setIsSeasonActive(isActive);
-      }
-    } catch (error) {
-      console.error('Error loading data:', error);
+    } else {
+      // ── OFFLINE: load from cache ──
+      loadFromCache();
+    }
+  };
+
+  const loadFromCache = () => {
+    if (!hasCachedData()) {
+      console.warn('[NewBooking] No cached data available for offline use');
+      return;
+    }
+
+    console.log('[NewBooking] Loading reference data from offline cache');
+    const cachedDepots = getCachedDepots();
+    const cachedPackages = getCachedPackages();
+    const cachedPricing = getCachedPricing();
+    const cachedSeason = getCachedSeason();
+
+    setDepots(cachedDepots);
+    setPackages(cachedPackages);
+    setPricing(cachedPricing);
+
+    const devgadDepot = cachedDepots.find((d: any) => d.name?.toLowerCase() === 'devgad' && d.type === 'origin');
+    if (devgadDepot) {
+      setFormData(prev => ({ ...prev, originDepotId: devgadDepot.id }));
+    }
+    if (cachedSeason) {
+      setSeason(cachedSeason);
+      const today = new Date();
+      const startDate = new Date(cachedSeason.startDate);
+      const endDate = new Date(cachedSeason.endDate);
+      const isActive = today >= startDate && today <= endDate;
+      setIsSeasonActive(isActive);
     }
   };
 
@@ -280,38 +326,7 @@ export default function NewBooking({ onNavigate }: NewBookingProps) {
     }
   };
 
-  // Swipe gesture handling for mobile
-  const touchStartX = useRef<number | null>(null);
-  const touchStartY = useRef<number | null>(null);
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null || touchStartY.current === null) return;
-
-    const touchEndX = e.changedTouches[0].clientX;
-    const touchEndY = e.changedTouches[0].clientY;
-    const deltaX = touchEndX - touchStartX.current;
-    const deltaY = touchEndY - touchStartY.current;
-
-    // Only trigger if horizontal swipe is greater than vertical (not scrolling)
-    // and swipe distance is at least 50px
-    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
-      if (deltaX < 0 && currentStep < 4) {
-        // Swipe left - go to next step
-        setCurrentStep(prev => Math.min(prev + 1, 4));
-      } else if (deltaX > 0 && currentStep > 1) {
-        // Swipe right - go to previous step
-        setCurrentStep(prev => Math.max(prev - 1, 1));
-      }
-    }
-
-    touchStartX.current = null;
-    touchStartY.current = null;
-  };
 
   const nextStep = () => setCurrentStep(prev => Math.min(prev + 1, 5));
   const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
@@ -478,19 +493,12 @@ export default function NewBooking({ onNavigate }: NewBookingProps) {
               </React.Fragment>
             ))}
           </div>
-
-          {/* Swipe hint for mobile */}
-          <p className="lg:hidden text-center text-xs text-gray-400 mt-2">
-            Swipe or use arrows to navigate
-          </p>
         </div>
       )}
 
       {/* Form Steps - Swipe enabled on mobile */}
       <div
         className="bg-white rounded-xl border border-gray-200 p-8 max-w-4xl mx-auto"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
       >
         {currentStep === 1 && (
           <Step1DepotPaymentDelivery
@@ -544,6 +552,9 @@ export default function NewBooking({ onNavigate }: NewBookingProps) {
           />
         )}
       </div>
+
+      {/* Show pending offline bookings */}
+      <OfflineBookings depots={depots} />
     </div>
   );
 }
@@ -764,14 +775,15 @@ function Step3ReceiversPackages({ formData, setFormData, packages, pricing, cust
   const [pricesLoaded, setPricesLoaded] = useState(false);
 
   // Fetch customer pricing on mount (based on sender phone)
+  // Skip when offline — customer pricing requires a network call
   useEffect(() => {
     const fetchCustomerPricing = async () => {
-      if (formData.senderPhone && validatePhone(formData.senderPhone)) {
+      if (formData.senderPhone && validatePhone(formData.senderPhone) && navigator.onLine) {
         try {
           const { pricing: custPricing } = await creditApi.getCustomerPricing(formData.senderPhone);
           setCustomerPricing(custPricing || []);
         } catch (error) {
-          console.log('No customer pricing found, using defaults');
+          console.log('No customer pricing found (or offline), using defaults');
           setCustomerPricing([]);
         }
       }
@@ -986,9 +998,11 @@ function Step3ReceiversPackages({ formData, setFormData, packages, pricing, cust
                         min="0"
                         step="1"
                         name={`package-price-${receiverIndex}-${pkg.id}`}
-                        value={currentPrice}
+                        value={currentPrice === 0 ? '' : currentPrice}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => {
-                          const newPrice = Number(e.target.value) || 0;
+                          const val = e.target.value;
+                          const newPrice = val === '' ? 0 : Number(val);
                           if (quantity > 0) {
                             updateReceiverPackagePrice(receiverIndex, pkg.id, newPrice);
                           } else {

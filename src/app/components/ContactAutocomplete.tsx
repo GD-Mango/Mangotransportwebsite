@@ -41,10 +41,10 @@ export default function ContactAutocomplete({
     const [isLoading, setIsLoading] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    // Debounce search
+    // Debounce search — skip when offline (user can still type manually)
     useEffect(() => {
         const query = activeField === 'name' ? nameValue : phoneValue;
-        if (!query || query.length < 2) {
+        if (!query || query.length < 2 || !navigator.onLine) {
             setSuggestions([]);
             setShowDropdown(false);
             return;
@@ -52,9 +52,15 @@ export default function ContactAutocomplete({
 
         const timer = setTimeout(async () => {
             setIsLoading(true);
-            const { contacts } = await contactsApi.search(query);
-            setSuggestions(contacts);
-            setShowDropdown(contacts.length > 0);
+            try {
+                const { contacts } = await contactsApi.search(query);
+                setSuggestions(contacts);
+                setShowDropdown(contacts.length > 0);
+            } catch {
+                // Silently handle errors (e.g., network glitch while appearing online)
+                setSuggestions([]);
+                setShowDropdown(false);
+            }
             setIsLoading(false);
         }, 300);
 

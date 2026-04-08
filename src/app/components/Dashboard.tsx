@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { bookingsApi, tripsApi } from '../utils/api';
+import { useOnlineStore, useSyncStore } from '../stores';
 
 interface DashboardProps {
   userRole: 'owner' | 'booking_clerk' | 'depot_manager';
@@ -18,7 +19,11 @@ export default function Dashboard({ userRole, assignedDepotId }: DashboardProps)
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadData();
+    if (navigator.onLine) {
+      loadData();
+    } else {
+      setIsLoading(false);
+    }
   }, []);
 
   const loadData = async () => {
@@ -190,7 +195,40 @@ export default function Dashboard({ userRole, assignedDepotId }: DashboardProps)
     }
   };
 
+  const isOnline = useOnlineStore((state) => state.isOnline);
+  const pendingOps = useSyncStore((state) => state.pendingOperations);
+  const pendingBookings = pendingOps.filter(op => op.type === 'CREATE_BOOKING');
+
   if (isLoading) return <div className="p-8">Loading dashboard...</div>;
+
+  // Offline mode — show simplified view
+  if (!isOnline) {
+    return (
+      <div className="p-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
+          <p className="text-gray-600">You are currently offline.</p>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-3xl">📡</span>
+            <div>
+              <h2 className="text-lg font-bold text-amber-900">Offline Mode</h2>
+              <p className="text-amber-700">Only booking is available while offline. Other features will be available when you reconnect.</p>
+            </div>
+          </div>
+          {pendingBookings.length > 0 && (
+            <div className="mt-4 p-3 bg-white rounded-lg border border-amber-200">
+              <p className="text-sm font-medium text-gray-700">
+                📋 {pendingBookings.length} pending {pendingBookings.length === 1 ? 'booking' : 'bookings'} waiting to sync
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8">
